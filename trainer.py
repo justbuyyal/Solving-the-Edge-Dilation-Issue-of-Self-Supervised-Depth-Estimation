@@ -214,7 +214,9 @@ class Trainer:
         for m in self.models.values():
             m.eval()
 
-    '''MY'''
+    '''MY SAVE BEST FUNCTION'''
+    # Comparing Best & Current Evaluation Score, if better, save it
+    # =====================================
     def save_best(self, losses):
         abs_rel_flag = False
         sq_rel_flag = False
@@ -238,6 +240,7 @@ class Trainer:
             self.best_models['de/log_rms'] = losses['de/log_rms']
             return True
         return False
+    # =====================================
 
     def train(self):
         """Run the entire training pipeline
@@ -302,22 +305,26 @@ class Trainer:
 
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
-            # late_phase = self.step % 2000 == 0
-            late_phase = self.step % 10 == 0
+            late_phase = self.step % 2000 == 0
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
                 # Wandb Log Loss
+                # =====================================
                 self.wandb.log({
                     'Total_loss': losses['loss'],
                     'Step': self.step
                 })
+                # =====================================
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
                 # self.val()
+                '''MY'''
+                # Saving best model if get a better one
+                # =====================================
                 metrics = self.evaluate()
                 if self.save_best(metrics):
                     self.wandb.log({
@@ -327,6 +334,7 @@ class Trainer:
                         'best/log_rms': metrics['de/log_rms']
                     })
                     self.save_model()
+                # =====================================
             self.step += 1
 
     def process_batch(self, inputs):
