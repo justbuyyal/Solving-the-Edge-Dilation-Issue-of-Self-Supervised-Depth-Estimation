@@ -274,7 +274,11 @@ class Trainer:
             # if (self.epoch + 1) % self.opt.save_frequency == 0:
             #     self.save_model()
         # Log Best Score as one
-        self.wandb.log(self.best_models)
+        error_metrics = ['abs_rel', 'sq_rel', 'rms', 'log_rms']
+        for idx, v in enumerate(self.best_models.values()):
+            self.wandb.log({
+                error_metrics[idx]: v
+            })
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -306,6 +310,7 @@ class Trainer:
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
             late_phase = self.step % 2000 == 0
+            # late_phase = self.step % 10 == 0
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
@@ -519,6 +524,7 @@ class Trainer:
         mean_errors = np.array(errors).mean(0)
         mean_errors = mean_errors.tolist()
         del errors, ratios
+        self.set_train()
         return {
             'de/abs_rel': float(mean_errors[0]),
             'de/sq_rel': float(mean_errors[1]),
