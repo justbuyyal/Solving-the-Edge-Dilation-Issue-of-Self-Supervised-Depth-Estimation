@@ -24,7 +24,7 @@ class LiteMonoOptions:
         self.parser.add_argument("--size",
                                  type=str,
                                  help="Training data size.",
-                                 choices=['mini', 'medium', 'full'],
+                                 choices=['super', 'mini', 'medium', 'full'],
                                  default='full')
         self.parser.add_argument("--model_name",
                                  type=str,

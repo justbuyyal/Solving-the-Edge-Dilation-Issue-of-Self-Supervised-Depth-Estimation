@@ -12,7 +12,6 @@ import networks
 import time
 from thop import clever_format
 from thop import profile
-import wandb
 
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
@@ -218,10 +217,6 @@ def evaluate(opt):
 
     print("\n  " + ("{:>8} | " * 7).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
     print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
-    # metrics = ["abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"]
-    # metrics_values = mean_errors.tolist()
-    # for idx, metric in enumerate(metrics):
-    #     wandb.log({metric: metrics_values[idx]})
     print("\n  " + ("flops: {0}, params: {1}, flops_e: {2}, params_e:{3}, flops_d:{4}, params_d:{5}").format(flops, params, flops_e, params_e, flops_d, params_d))
     print("\n-> Done!")
 

@@ -15,7 +15,6 @@ from layers import *
 import datasets
 import networks
 from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedScheduler
-from evaluate_depth import evaluate
 
 import wandb
 
@@ -271,12 +270,8 @@ class Trainer:
             '''ORIGINAL'''
             # if (self.epoch + 1) % self.opt.save_frequency == 0:
             #     self.save_model()
-        # Eval on Test Set
-        # =====================================
-        # if self.opt.load_weights_folder is not None:
-        #     evaluate(self.opt)
-        # =====================================
-        
+        # Log Best Score as one
+        self.wandb.log(self.best_models)
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -307,7 +302,8 @@ class Trainer:
 
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
-            late_phase = self.step % 2000 == 0
+            # late_phase = self.step % 2000 == 0
+            late_phase = self.step % 10 == 0
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
@@ -321,8 +317,16 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                self.val()
-
+                # self.val()
+                metrics = self.evaluate()
+                if self.save_best(metrics):
+                    self.wandb.log({
+                        'best/abs_rel': metrics['de/abs_rel'],
+                        'best/sq_rel': metrics['de/sq_rel'],
+                        'best/rms': metrics['de/rms'],
+                        'best/log_rms': metrics['de/log_rms']
+                    })
+                    self.save_model()
             self.step += 1
 
     def process_batch(self, inputs):
@@ -428,7 +432,6 @@ class Trainer:
         except StopIteration:
             self.val_iter = iter(self.val_loader)
             inputs = self.val_iter.next()
-        before_time = time.time()
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
 
@@ -437,11 +440,84 @@ class Trainer:
 
             self.log("val", inputs, outputs, losses)
             del inputs, outputs, losses
-        duration = time.time() - before_time
-        '''MY'''
-        self.wandb.log({'Valid_time(s)': duration})
         
         self.set_train()
+    
+    '''
+        MY Evaluation
+    '''
+    # =====================================
+    def evaluate(self):
+        import cv2
+        cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
+        MIN_DEPTH = 1e-3
+        MAX_DEPTH = 80
+        self.set_eval()
+        img_ext = '.png' if self.opt.png else '.jpg'
+        splits_dir = os.path.join(os.path.dirname(__file__), "splits")
+        filenames = readlines(os.path.join(splits_dir, self.opt.eval_split, "test_files.txt"))
+        dataset = datasets.KITTIRAWDataset(self.opt.data_path, filenames,
+                                           self.opt.height, self.opt.width,
+                                           [0], 4, is_train=False, img_ext=img_ext)
+        # Fix batch-size = 16
+        dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=self.opt.num_workers,
+                                pin_memory=True, drop_last=False)
+        pred_disps = []
+        with torch.no_grad():
+            for data in dataloader:
+                input_color = data[("color", 0, 0)].cuda()
+                output = self.models['depth'](self.models['encoder'](input_color))
+                pred_disp, _ = disp_to_depth(output[("disp", 0)], self.opt.min_depth, self.opt.max_depth)
+                pred_disp = pred_disp.cpu()[:, 0].numpy()
+                pred_disps.append(pred_disp)
+        pred_disps = np.concatenate(pred_disps)
+        # Load GT
+        gt_path = os.path.join(splits_dir, self.opt.eval_split, "gt_depths.npz")
+        gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1', allow_pickle=True)["data"]
+        # Eval
+        errors = []
+        ratios = []
+        for i in range(pred_disps.shape[0]):
+            gt_depth = gt_depths[i]
+            gt_height, gt_width = gt_depth.shape[:2]
+
+            pred_disp = pred_disps[i]
+            pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
+            pred_depth = 1 / pred_disp
+
+            if self.opt.eval_split == "eigen":
+                mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
+
+                crop = np.array([0.40810811 * gt_height, 0.99189189 * gt_height,
+                                0.03594771 * gt_width,  0.96405229 * gt_width]).astype(np.int32)
+                crop_mask = np.zeros(mask.shape)
+                crop_mask[crop[0]:crop[1], crop[2]:crop[3]] = 1
+                mask = np.logical_and(mask, crop_mask)
+
+            pred_depth = pred_depth[mask]
+            gt_depth = gt_depth[mask]
+
+            pred_depth *= self.opt.pred_depth_scale_factor
+            if not self.opt.disable_median_scaling:
+                ratio = np.median(gt_depth) / np.median(pred_depth)
+                ratios.append(ratio)
+                pred_depth *= ratio
+
+            pred_depth[pred_depth < MIN_DEPTH] = MIN_DEPTH
+            pred_depth[pred_depth > MAX_DEPTH] = MAX_DEPTH
+            # Output: abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
+            errors.append(compute_errors(gt_depth, pred_depth))
+        
+        mean_errors = np.array(errors).mean(0)
+        mean_errors = mean_errors.tolist()
+        del errors, ratios
+        return {
+            'de/abs_rel': float(mean_errors[0]),
+            'de/sq_rel': float(mean_errors[1]),
+            'de/rms': float(mean_errors[2]),
+            'de/log_rms': float(mean_errors[3])
+        }
+    # =====================================
 
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
@@ -658,11 +734,6 @@ class Trainer:
             else:
                 wandb_dict.update({(l+'_val'):v})
         self.wandb.log(wandb_dict)
-        
-        '''MY'''
-        if mode == 'val':
-            if self.save_best(losses):
-                self.save_model()
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
@@ -781,4 +852,3 @@ class Trainer:
             self.model_pose_optimizer.load_state_dict(optimizer_pose_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
-
