@@ -1,0 +1,23 @@
+# Docker Compose Command
+# docker compose create
+
+# Build Image from Docker Hub
+version: "2.4"
+services:
+  lab:
+    container_name: lite_mono
+    image: shungfu/envu20:3090
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - DISPLAY=$DISPLAY
+    stdin_open: true
+    tty: true
+    volumes: 
+      - .:/home/user/code
+      - /home/parzival/Desktop/Datasets:/home/user/datasets
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    ports:
+      - "8080:80"
+    ipc: host
+    network_mode: "host"
