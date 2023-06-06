@@ -1,0 +1,4 @@
+tensorboardX
+wandb
+timm
+git+https://github.com/saadnaeem-dev/pytorch-linear-warmup-cosine-annealing-warm-restarts-weight-decay
