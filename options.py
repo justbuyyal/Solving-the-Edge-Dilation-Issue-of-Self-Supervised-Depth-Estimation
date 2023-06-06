@@ -19,12 +19,44 @@ class LiteMonoOptions:
                                  type=str,
                                  help="log directory",
                                  default="./tmp")
+        '''
+          Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
+        '''
+        # =====================================
+        self.parser.add_argument("--disable_auto_blur",
+                                 help="if set, disable Auto-Blur",
+                                 default=False, action="store_true")
+        self.parser.add_argument("--receptive_field_of_auto_blur",
+                                 type=int, default=9)
+        self.parser.add_argument("--disable_ambiguity_mask",
+                                 help="if set, disable Ambiguity-Masking",
+                                 default=False,
+                                 action="store_true")
+        self.parser.add_argument("--ambiguity_thresh",
+                                 type=float,
+                                 help="threshold for ambiguous pixels",
+                                 default=0.3)
+        self.parser.add_argument("--hf_pixel_thresh",
+                                 type=float,
+                                 help="hf pixel thresh in Auto-Blur",
+                                 default=0.2)
+        self.parser.add_argument("--hf_area_percent_thresh",
+                                 type=int, default=60)
+        self.parser.add_argument("--ambiguity_by_negative_exponential",
+                                 help='if set, use negative exponential '
+                                      'to replace threshold',
+                                 default=False, action="store_true")
+        self.parser.add_argument("--negative_exponential_coefficient",
+                                 help='coefficient of negative '
+                                      'exponential function',
+                                 type=int, default=3)
+        # =====================================
 
         # TRAINING options
         self.parser.add_argument("--size",
                                  type=str,
                                  help="Training data size.",
-                                 choices=['super', 'mini', 'medium', 'full'],
+                                 choices=['tiny', 'super', 'mini', 'medium', 'full'],
                                  default='full')
         self.parser.add_argument("--model_name",
                                  type=str,
