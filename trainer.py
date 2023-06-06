@@ -176,21 +176,6 @@ class Trainer:
         if not self.opt.no_ssim:
             self.ssim = SSIM()
             self.ssim.to(self.device)
-            
-        '''
-            Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-        '''
-        # =====================================
-        if not self.opt.disable_auto_blur:
-            assert self.opt.receptive_field_of_auto_blur % 2 == 1, \
-                'receptive_field_of_auto_blur should be an odd number'
-            self.auto_blur = networks.AutoBlurModule(
-                self.opt.receptive_field_of_auto_blur,
-                hf_pixel_thresh=self.opt.hf_pixel_thresh,
-                hf_area_percent_thresh=self.opt.hf_area_percent_thresh,
-            )
-            self.auto_blur.to(self.device)
-        # =====================================
 
         self.backproject_depth = {}
         self.project_3d = {}
@@ -362,18 +347,6 @@ class Trainer:
         """
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
-        
-        '''
-            Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-        '''
-        # =====================================
-        if not self.opt.disable_auto_blur:
-            for scale in self.opt.scales:
-                for f_i in self.opt.frame_ids:
-                    inputs[('raw_color', f_i, scale)] = inputs[('color', f_i, scale)]
-                    inputs[('color', f_i, scale)] = self.auto_blur(
-                        inputs[('color', f_i, scale)])
-        # =====================================
 
         if self.opt.pose_model_type == "shared":
             # If we are using a shared encoder for both depth and pose (as advocated
@@ -643,15 +616,7 @@ class Trainer:
                 source_scale = 0
 
             disp = outputs[("disp", scale)]
-            '''ORIGINAL'''
-            # color = inputs[("color", 0, scale)]
-            '''
-                Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-            '''
-            # =====================================
-            color = inputs[("color", 0, scale)] if self.opt.disable_ambiguity_mask \
-                else inputs[('raw_color', 0, scale)]
-            # =====================================
+            color = inputs[("color", 0, scale)]
             target = inputs[("color", 0, source_scale)]
 
             for frame_id in self.opt.frame_ids[1:]:
@@ -693,15 +658,6 @@ class Trainer:
                 reprojection_loss = reprojection_losses.mean(1, keepdim=True)
             else:
                 reprojection_loss = reprojection_losses
-            
-            '''
-                Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-            '''
-            # =====================================
-            if not self.opt.disable_ambiguity_mask:
-                ambiguity_mask = self.compute_ambiguity_mask(
-                    inputs, outputs, reprojection_loss, scale)
-            # =====================================
 
             if not self.opt.disable_automasking:
                 # add random numbers to break ties
@@ -716,14 +672,6 @@ class Trainer:
                 to_optimise = combined
             else:
                 to_optimise, idxs = torch.min(combined, dim=1)
-            
-            '''
-                Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-            '''
-            # =====================================
-            if not self.opt.disable_ambiguity_mask:
-                to_optimise = to_optimise * ambiguity_mask
-            # =====================================
 
             if not self.opt.disable_automasking:
                 outputs["identity_selection/{}".format(scale)] = (
@@ -742,62 +690,6 @@ class Trainer:
         total_loss /= self.num_scales
         losses["loss"] = total_loss
         return losses
-    
-    '''
-        Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
-    '''
-    # =====================================
-    @staticmethod
-    def extract_ambiguity(ipt):
-        grad_r = ipt[:, :, :, :-1] - ipt[:, :, :, 1:]
-        grad_b = ipt[:, :, :-1, :] - ipt[:, :, 1:, :]
-
-        grad_l = F.pad(grad_r, (1, 0))
-        grad_r = F.pad(grad_r, (0, 1))
-
-        grad_t = F.pad(grad_b, (0, 0, 1, 0))
-        grad_b = F.pad(grad_b, (0, 0, 0, 1))
-
-        is_u_same_sign = ((grad_l * grad_r) > 0).any(dim=1, keepdim=True)
-        is_v_same_sign = ((grad_t * grad_b) > 0).any(dim=1, keepdim=True)
-        is_same_sign = torch.logical_or(is_u_same_sign, is_v_same_sign)
-
-        grad_u = (grad_l.abs() + grad_r.abs()).sum(1, keepdim=True) / 2
-        grad_v = (grad_t.abs() + grad_b.abs()).sum(1, keepdim=True) / 2
-        grad = torch.sqrt(grad_u ** 2 + grad_v ** 2)
-
-        ambiguity = grad * is_same_sign
-        return ambiguity
-    
-    def compute_ambiguity_mask(self, inputs, outputs,
-                               reprojection_loss, scale):
-        src_scale = scale if self.opt.v1_multiscale else 0
-        min_reproj, min_idx = torch.min(reprojection_loss, dim=1)
-
-        target_ambiguity = self.extract_ambiguity(inputs[("color", 0, src_scale)])
-
-        reproj_ambiguities = []
-        for f_i in self.opt.frame_ids[1:]:
-            src_ambiguity = self.extract_ambiguity(inputs[("color", f_i, src_scale)])
-
-            reproj_ambiguity = F.grid_sample(
-                src_ambiguity, outputs[("sample", f_i, scale)],
-                padding_mode="border", align_corners=True)
-            reproj_ambiguities.append(reproj_ambiguity)
-
-        reproj_ambiguities = torch.cat(reproj_ambiguities, dim=1)
-        reproj_ambiguity = torch.gather(reproj_ambiguities, 1, min_idx.unsqueeze(1))
-
-        synthetic_ambiguity, _ = torch.cat(
-            [target_ambiguity, reproj_ambiguity], dim=1).max(dim=1)
-
-        if self.opt.ambiguity_by_negative_exponential:
-            ambiguity_mask = torch.exp(-self.opt.negative_exponential_coefficient
-                                       * synthetic_ambiguity)
-        else:
-            ambiguity_mask = synthetic_ambiguity < self.opt.ambiguity_thresh
-        return ambiguity_mask
-    # =====================================
 
     def compute_depth_losses(self, inputs, outputs, losses):
         """Compute depth metrics, to allow monitoring during training
