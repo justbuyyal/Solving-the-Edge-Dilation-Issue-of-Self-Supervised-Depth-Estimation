@@ -44,8 +44,10 @@ from random import sample
 # Define the paths to the original Eigen Train file and the mini train file
 original_file_path = "/home/user/code/splits/eigen_zhou"
 
-percent_split = [0.3, 0.5]
-splits = ['mini', 'medium']
+# percent_split = [0.3, 0.5]
+# splits = ['mini', 'medium']
+percent_split = [0.1]
+splits = ['tiny']
 
 # Read the original file into a list of lines
 with open(os.path.join(original_file_path, "train_files.txt"), "r") as f:

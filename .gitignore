@@ -135,3 +135,4 @@ adam_pose.pth
 adam.pth
 *.npz
 pretrained/
+tmp/
