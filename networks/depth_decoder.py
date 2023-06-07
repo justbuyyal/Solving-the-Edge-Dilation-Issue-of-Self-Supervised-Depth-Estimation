@@ -56,6 +56,13 @@ class DepthDecoder(nn.Module):
                 x += [input_features[i - 1]]
             x = torch.cat(x, 1)
             x = self.convs[("upconv", i, 1)](x)
+            
+            '''
+                Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+            '''
+            # =====================================
+            self.outputs[('d_feature', i+1)] = x
+            # =====================================
 
             if i in self.scales:
                 f = upsample(self.convs[("dispconv", i)](x), mode='bilinear')
