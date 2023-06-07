@@ -218,22 +218,13 @@ class Trainer:
     # Comparing Best & Current Evaluation Score, if better, save it
     # =====================================
     def save_best(self, losses):
-        abs_rel_flag = False
-        sq_rel_flag = False
-        rms_flag = False
-        log_rms_flag = False
-        for metric in self.depth_metric_names:
-            if metric in self.best_models.keys():
-                if metric == 'de/abs_rel':
-                    abs_rel_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/sq_rel':
-                    sq_rel_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/rms':
-                    rms_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/log_rms':
-                    log_rms_flag = losses[metric] <= self.best_models[metric]
-        if (abs_rel_flag) or (abs_rel_flag and sq_rel_flag) or (abs_rel_flag and sq_rel_flag and rms_flag) or \
-                    (abs_rel_flag and sq_rel_flag and rms_flag and log_rms_flag):
+        priority_order = ['de/abs_rel', 'de/sq_rel', 'de/rms', 'de/rms_log']
+        update_flag = False
+        for metric in priority_order:
+            if losses[metric] < self.best_models[metric]:
+                update_flag = True
+                break
+        if update_flag:
             self.best_models['de/abs_rel'] = losses['de/abs_rel']
             self.best_models['de/sq_rel'] = losses['de/sq_rel']
             self.best_models['de/rms'] = losses['de/rms']
@@ -273,6 +264,19 @@ class Trainer:
             '''ORIGINAL'''
             # if (self.epoch + 1) % self.opt.save_frequency == 0:
             #     self.save_model()
+            '''MY'''
+            # Saving best model if get a better one
+            # =====================================
+            metrics = self.evaluate()
+            if self.save_best(metrics):
+                self.wandb.log({
+                    'best/abs_rel': metrics['de/abs_rel'],
+                    'best/sq_rel': metrics['de/sq_rel'],
+                    'best/rms': metrics['de/rms'],
+                    'best/log_rms': metrics['de/log_rms']
+                })
+                self.save_model()
+            # =====================================
         # Log Best Score as one
         error_metrics = ['abs_rel', 'sq_rel', 'rms', 'log_rms']
         for idx, v in enumerate(self.best_models.values()):
@@ -310,7 +314,6 @@ class Trainer:
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
             late_phase = self.step % 2000 == 0
-            # late_phase = self.step % 10 == 0
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
@@ -327,19 +330,6 @@ class Trainer:
 
                 self.log("train", inputs, outputs, losses)
                 # self.val()
-                '''MY'''
-                # Saving best model if get a better one
-                # =====================================
-                metrics = self.evaluate()
-                if self.save_best(metrics):
-                    self.wandb.log({
-                        'best/abs_rel': metrics['de/abs_rel'],
-                        'best/sq_rel': metrics['de/sq_rel'],
-                        'best/rms': metrics['de/rms'],
-                        'best/log_rms': metrics['de/log_rms']
-                    })
-                    self.save_model()
-                # =====================================
             self.step += 1
 
     def process_batch(self, inputs):
