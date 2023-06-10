@@ -44,6 +44,64 @@ class PositionalEncodingFourier(nn.Module):
         pos = self.token_projection(pos)
         return pos
 
+'''
+    SpectFormer: Frequency and Attention is what you need in a Vision Transformer
+'''
+# =====================================
+class SpectralGatingNetwork(nn.Module):
+    def __init__(self, dim, h=14, w=8):
+        super().__init__()
+        self.complex_weight = nn.Parameter(torch.randn(h, int((w/2 + 1)), dim, 2, dtype=torch.float32) * 0.02)
+        self.w = w
+        self.h = h
+    
+    def forward(self, x, spatial_size=None):
+        B, N, C = x.shape
+        if spatial_size is None:
+            a = self.h
+            b = self.w
+        else:
+            a, b, = spatial_size
+        
+        x = x.view(B, a, b, C) # B, H, W, C
+        x = x.to(torch.float32)
+        x = torch.fft.rfft2(x, dim=(1, 2), norm='ortho') # B, H, (W/2 + 1), C
+        weight = torch.view_as_complex(self.complex_weight)
+        x = x * weight
+        x = torch.fft.irfft2(x, s=(a, b), dim=(1, 2), norm='ortho') # B, H, W, C
+        x = x.reshape(B, N, C) # B, H*W, C
+        return x
+
+class SpecBlock(nn.Module):
+
+    def __init__(self, dim, drop_path=0., h=14, w=8, use_pos_emb=True, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.filter = SpectralGatingNetwork(dim, h=h, w=w)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        self.pos_embd = None
+        if use_pos_emb:
+            self.pos_embd = PositionalEncodingFourier(dim=dim)
+
+    def forward(self, x):
+        # print(f'Block input shape: {x.shape}')
+        B, C, H, W = x.shape
+        input_ = x # (B, C, H, W)
+        x = x.reshape(B, C, H * W).permute(0, 2, 1) # B, N, C
+        if self.pos_embd:
+            pos_encoding = self.pos_embd(B, H, W).reshape(B, -1, x.shape[1]).permute(0, 2, 1)
+            x = x + pos_encoding # B, N, C
+        
+        x = self.norm1(x)
+        x = self.filter(x) # B, N, C
+        x = self.norm2(x)
+        x = x.reshape(B, H, W, C)
+        x = x.permute(0, 3, 1, 2) # (B, H, W, C) -> (B, C, H, W)
+        x = self.drop_path(x)
+        x = input_ + x
+        return x
+# =====================================
 
 class XCA(nn.Module):
     """ Cross-Covariance Attention (XCA) operation where the channels are updated using a weighted
@@ -372,12 +430,21 @@ class LiteMono(nn.Module):
             for j in range(self.depth[i]):
                 if j > self.depth[i] - global_block[i] - 1:
                     if global_block_type[i] == 'LGFI':
+                        '''
+                            SpectFormer: Frequency and Attention is what you need in a Vision Transformer
+                                > Add Before LGFI Block
+                        '''
+                        # =====================================
+                        stage_blocks.append(SpecBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
+                                                h=(height//4)//(2**i), w=(width//4)//(2**i),
+                                                use_pos_emb=use_pos_embd_xca[i]
+                                                ))
+                        # =====================================
                         stage_blocks.append(LGFI(dim=self.dims[i], drop_path=dp_rates[cur + j],
                                                  expan_ratio=expan_ratio,
                                                  use_pos_emb=use_pos_embd_xca[i], num_heads=heads[i],
                                                  layer_scale_init_value=layer_scale_init_value,
                                                  ))
-
                     else:
                         raise NotImplementedError
                 else:

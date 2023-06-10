@@ -232,22 +232,13 @@ class Trainer:
     # Comparing Best & Current Evaluation Score, if better, save it
     # =====================================
     def save_best(self, losses):
-        abs_rel_flag = False
-        sq_rel_flag = False
-        rms_flag = False
-        log_rms_flag = False
-        for metric in self.depth_metric_names:
-            if metric in self.best_models.keys():
-                if metric == 'de/abs_rel':
-                    abs_rel_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/sq_rel':
-                    sq_rel_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/rms':
-                    rms_flag = losses[metric] <= self.best_models[metric]
-                if metric == 'de/log_rms':
-                    log_rms_flag = losses[metric] <= self.best_models[metric]
-        if (abs_rel_flag) or (abs_rel_flag and sq_rel_flag) or (abs_rel_flag and sq_rel_flag and rms_flag) or \
-                    (abs_rel_flag and sq_rel_flag and rms_flag and log_rms_flag):
+        priority_order = ['de/abs_rel', 'de/sq_rel', 'de/rms', 'de/rms_log']
+        update_flag = False
+        for metric in priority_order:
+            if losses[metric] < self.best_models[metric]:
+                update_flag = True
+                break
+        if update_flag:
             self.best_models['de/abs_rel'] = losses['de/abs_rel']
             self.best_models['de/sq_rel'] = losses['de/sq_rel']
             self.best_models['de/rms'] = losses['de/rms']
