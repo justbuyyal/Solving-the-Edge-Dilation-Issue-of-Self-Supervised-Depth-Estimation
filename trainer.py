@@ -232,7 +232,7 @@ class Trainer:
     # Comparing Best & Current Evaluation Score, if better, save it
     # =====================================
     def save_best(self, losses):
-        priority_order = ['de/abs_rel', 'de/sq_rel', 'de/rms', 'de/rms_log']
+        priority_order = ['de/abs_rel', 'de/sq_rel', 'de/rms', 'de/log_rms']
         update_flag = False
         for metric in priority_order:
             if losses[metric] < self.best_models[metric]:
