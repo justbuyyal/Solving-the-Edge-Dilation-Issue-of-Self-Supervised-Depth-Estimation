@@ -1,4 +1,4 @@
-MODEL_NAME="LM_KITTI"
+MODEL_NAME="LM_Spect_tiny_work_0"
 
 python -W ignore evaluate_depth.py \
         --load_weights_folder /home/user/code/tmp/$MODEL_NAME/models/best/ \

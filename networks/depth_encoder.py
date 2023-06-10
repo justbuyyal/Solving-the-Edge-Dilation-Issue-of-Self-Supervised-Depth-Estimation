@@ -72,7 +72,7 @@ class SpectralGatingNetwork(nn.Module):
         x = x.reshape(B, N, C) # B, H*W, C
         return x
 
-class SpecBlock(nn.Module):
+class SpectBlock(nn.Module):
 
     def __init__(self, dim, drop_path=0., h=14, w=8, use_pos_emb=True, norm_layer=nn.LayerNorm):
         super().__init__()
@@ -432,19 +432,29 @@ class LiteMono(nn.Module):
                     if global_block_type[i] == 'LGFI':
                         '''
                             SpectFormer: Frequency and Attention is what you need in a Vision Transformer
-                                > Add Before LGFI Block
+                                > Add Before LGFI Block (V1)
                         '''
                         # =====================================
-                        stage_blocks.append(SpecBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
-                                                h=(height//4)//(2**i), w=(width//4)//(2**i),
-                                                use_pos_emb=use_pos_embd_xca[i]
-                                                ))
+                        # stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
+                        #                         h=(height//4)//(2**i), w=(width//4)//(2**i),
+                        #                         use_pos_emb=use_pos_embd_xca[i]
+                        #                         ))
                         # =====================================
                         stage_blocks.append(LGFI(dim=self.dims[i], drop_path=dp_rates[cur + j],
                                                  expan_ratio=expan_ratio,
                                                  use_pos_emb=use_pos_embd_xca[i], num_heads=heads[i],
                                                  layer_scale_init_value=layer_scale_init_value,
                                                  ))
+                        '''
+                            SpectFormer: Frequency and Attention is what you need in a Vision Transformer
+                                > Add Before LGFI Block (V2)
+                        '''
+                        # =====================================
+                        stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
+                                                h=(height//4)//(2**i), w=(width//4)//(2**i),
+                                                use_pos_emb=False
+                                                ))
+                        # =====================================
                     else:
                         raise NotImplementedError
                 else:
