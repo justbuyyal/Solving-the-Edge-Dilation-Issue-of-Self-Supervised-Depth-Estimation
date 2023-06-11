@@ -179,7 +179,7 @@ class MonoDataset(data.Dataset):
             del inputs[("color_aug", i, -1)]
         
         # Add 'and False' ? (Freq-Aware)
-        if self.load_depth:
+        if self.load_depth and False:
             depth_gt = self.get_depth(folder, frame_index, side, do_flip)
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))

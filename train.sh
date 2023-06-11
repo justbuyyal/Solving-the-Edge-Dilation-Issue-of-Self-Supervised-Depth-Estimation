@@ -1,7 +1,7 @@
 DATA_PATH=~/datasets/kitti/
 EPOCHS=30
 BATCH_SIZE=32
-WORKERS=4
+WORKERS=8
 SEED=63
 
 # python -W ignore train.py \
@@ -42,7 +42,7 @@ SEED=63
 
 python -W ignore train.py \
     --data_path $DATA_PATH \
-    --model_name LM_KITTI \
+    --model_name LM_AB \
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --mypretrain ./pretrained/lite-mono-pretrain.pth \
