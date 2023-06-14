@@ -8,6 +8,15 @@ import PIL.Image as pil
 from kitti_utils import generate_depth_map
 from .mono_dataset import MonoDataset
 
+'''
+    Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+'''
+# =====================================
+from seg_utils import *
+from PIL import Image
+from torchvision import transforms
+# =====================================
+
 
 class KITTIDataset(MonoDataset):
     """Superclass for different types of KITTI dataset loaders
@@ -49,12 +58,64 @@ class KITTIRAWDataset(KITTIDataset):
     """
     def __init__(self, *args, **kwargs):
         super(KITTIRAWDataset, self).__init__(*args, **kwargs)
+        '''
+            Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+        '''
+        # =====================================
+        if not self.is_train:
+            # segmentation is only needed when training or validating.
+            return
+        self.resize_seg = transforms.Resize((self.height, self.width,),
+                                            interpolation=Image.BILINEAR)
+        # =====================================
 
-    def get_image_path(self, folder, frame_index, side):
-        f_str = "{:010d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
-            self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+    def get_image_path(self, folder, frame_index, side, seg=False):
+        '''ORIGINAL'''
+        # f_str = "{:010d}{}".format(frame_index, self.img_ext)
+        # image_path = os.path.join(
+        #     self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+        '''
+            Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+        '''
+        # =====================================
+        f_str = "{:010d}{}".format(frame_index, '.png' if seg else self.img_ext)
+        assert side is not None
+        if seg:
+            image_path = os.path.join(
+                self.data_path, folder, "image_0{}".format(self.side_map[side]), f_str)
+        else:
+            image_path = os.path.join(
+                self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+        # =====================================
         return image_path
+    
+    '''
+        Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+    '''
+    # =====================================
+    def get_item_custom(self, inputs, folder, frame_index, side, do_flip):
+        if not self.is_train:
+            # semantic segmentation is not needed when testing (inferring).
+            return
+        raw_seg = self.get_seg_map(folder, frame_index, side, do_flip)
+        seg = self.resize_seg(raw_seg)
+        inputs[('seg', 0, 0)] = torch.tensor(np.array(seg)).float().unsqueeze(0)
+
+    def get_seg_map(self, folder, frame_index, side, do_flip):
+        path = self.get_image_path(folder, frame_index, side, True)
+        path = path.replace('kitti', 'kitti/segmentation')
+
+        seg = self.loader(path, mode='P')
+        seg_copy = np.array(seg.copy())
+
+        for k in np.unique(seg):
+            seg_copy[seg_copy == k] = labels[k].trainId
+        seg = Image.fromarray(seg_copy, mode='P')
+
+        if do_flip:
+            seg = seg.transpose(pil.FLIP_LEFT_RIGHT)
+        return seg
+    # =====================================
 
     def get_depth(self, folder, frame_index, side, do_flip):
         calib_path = os.path.join(self.data_path, folder.split("/")[0])

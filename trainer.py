@@ -160,13 +160,13 @@ class Trainer:
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=self.opt.num_workers, pin_memory=False, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=self.opt.num_workers, pin_memory=False, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -292,6 +292,8 @@ class Trainer:
                 })
                 self.save_model()
             # =====================================
+        # Save Checkpoint
+        self.save_model(checkpoint=True)
         # Log Best Score as one
         error_metrics = ['abs_rel', 'sq_rel', 'rms', 'log_rms']
         for idx, v in enumerate(self.best_models.values()):
@@ -729,9 +731,80 @@ class Trainer:
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
-        total_loss /= self.num_scales
+        '''
+            Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+        '''
+        # =====================================
+        if not self.opt.disable_triplet_loss:
+            sgt_loss = self.compute_sgt_loss(inputs, outputs)
+            losses['sgt_loss'] = sgt_loss
+            total_loss = total_loss + sgt_loss * self.opt.sgt
+        # =====================================
+        '''ORIGINAL'''
+        # else:
+        #     total_loss /= self.num_scales
         losses["loss"] = total_loss
         return losses
+    
+    '''
+        Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+    '''
+    # =====================================
+    def compute_sgt_loss(self, inputs, outputs):
+        seg_target = inputs[('seg', 0, 0)]
+        N, _, H, W = seg_target.shape
+        total_loss = 0
+
+        for s, kernel_size in zip(self.opt.sgt_scales, self.opt.sgt_kernel_size):
+            # s: [3, 2, 1]
+            pad = kernel_size // 2
+            h, w = self.opt.height // 2 ** s, self.opt.width // 2 ** s
+            seg = F.interpolate(seg_target, size=(h, w), mode='nearest')
+            seg_pad = F.pad(seg, pad=[pad] * 4, value=-1)
+            patches = seg_pad.unfold(2, kernel_size, 1).unfold(3, kernel_size, 1)
+            aggregated_label = patches - seg.unsqueeze(-1).unsqueeze(-1)
+            pos_idx = (aggregated_label == 0).float()  # FIXME: misjudge anchor as positive.
+            neg_idx = (aggregated_label != 0).float()
+            pos_num = pos_idx.sum(dim=(-1, -2))
+            neg_num = neg_idx.sum(dim=(-1, -2))
+
+            is_boundary = (pos_num >= kernel_size - 1) & (neg_num >= kernel_size - 1)
+
+            feature = outputs[('d_feature', s)]
+            affinity = self.compute_affinity(feature, kernel_size=kernel_size)
+            neg_dist = neg_idx * affinity
+
+            if not self.opt.disable_hardest_neg:
+                neg_dist[neg_dist == 0] = 1e3
+                neg_dist_x, arg_min_x = torch.min(neg_dist, dim=-1)
+                neg_dist, arg_min_y = torch.min(neg_dist_x, dim=-1)
+                arg_min_x = torch.gather(arg_min_x, -1,
+                                         arg_min_y.unsqueeze(-1)).squeeze(-1)
+                neg_dist = neg_dist[is_boundary]
+            else:
+                neg_dist = neg_dist.sum(dim=(-1, -2))[is_boundary] / \
+                           neg_num[is_boundary]
+
+            pos_dist = ((pos_idx * affinity).sum(dim=(-1, -2)) / pos_num)[is_boundary]
+
+            zeros = torch.zeros(pos_dist.shape, device=self.device)
+            if not self.opt.disable_isolated_triplet:
+                loss = pos_dist + torch.max(zeros, self.opt.sgt_isolated_margin - neg_dist)
+            else:
+                loss = torch.max(zeros,  self.opt.sgt_margin + pos_dist - neg_dist)
+            total_loss = total_loss + loss.mean() / (2 ** s)
+        return total_loss
+
+    @staticmethod
+    def compute_affinity(feature, kernel_size):
+        pad = kernel_size // 2
+        feature = F.normalize(feature, dim=1)
+        unfolded = F.pad(feature, [pad] * 4).unfold(2, kernel_size, 1).unfold(3, kernel_size, 1)
+        feature = feature.unsqueeze(-1).unsqueeze(-1)
+        similarity = (feature * unfolded).sum(dim=1, keepdim=True)
+        affinity = torch.clamp(2 - 2 * similarity, min=1e-9).sqrt()
+        return affinity
+    # =====================================
     
     '''
         Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
@@ -885,12 +958,14 @@ class Trainer:
         with open(os.path.join(models_dir, 'opt.json'), 'w') as f:
             json.dump(to_save, f, indent=2)
     
-    def save_model(self):
+    def save_model(self, checkpoint=False):
         """Save model weights to disk
         """
         # save_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.best_models['epoch']))
         '''MY'''
         save_folder = os.path.join(self.log_path, "models", 'best')
+        if checkpoint:
+            save_folder = save_folder.replace('best', 'checkpoint')
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
 
@@ -902,11 +977,15 @@ class Trainer:
                 to_save['height'] = self.opt.height
                 to_save['width'] = self.opt.width
                 to_save['use_stereo'] = self.opt.use_stereo
+                if checkpoint:
+                    to_save['epoch'] = self.opt.num_epochs
             torch.save(to_save, save_path)
 
         for model_name, model in self.models_pose.items():
             save_path = os.path.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
+            if checkpoint:
+                to_save['epoch'] = self.opt.num_epochs
             torch.save(to_save, save_path)
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))

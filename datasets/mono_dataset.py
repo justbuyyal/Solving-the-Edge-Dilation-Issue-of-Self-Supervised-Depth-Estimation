@@ -11,10 +11,18 @@ import torch.utils.data as data
 from torchvision import transforms
 
 
-def pil_loader(path):
-    with open(path, 'rb') as f:
-        with Image.open(f) as img:
-            return img.convert('RGB')
+def pil_loader(path, mode='RGB'):
+    '''
+        Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+    '''
+    # =====================================
+    if mode == 'P':
+        return Image.open(path)
+    # =====================================
+    else:
+        with open(path, 'rb') as f:
+            with Image.open(f) as img:
+                return img.convert('RGB')
 
 
 class MonoDataset(data.Dataset):
@@ -98,7 +106,18 @@ class MonoDataset(data.Dataset):
             if "color" in k:
                 n, im, i = k
                 inputs[(n, im, i)] = self.to_tensor(f)
-                inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+                '''ORIGINAL'''
+                # inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+                '''
+                    Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+                '''
+                # =====================================
+                # check it isn't a blank frame - keep _aug as zeros so we can check for it
+                if inputs[(n, im, i)].sum() == 0:
+                    inputs[(n + "_aug", im, i)] = inputs[(n, im, i)]
+                else:
+                    inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+                # =====================================
 
     def __len__(self):
         return len(self.filenames)
@@ -152,6 +171,13 @@ class MonoDataset(data.Dataset):
             else:
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
 
+        '''
+            Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+        '''
+        # =====================================
+        self.get_item_custom(inputs, folder, frame_index, side, do_flip)
+        # =====================================
+        
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
             K = self.K.copy()
@@ -202,3 +228,12 @@ class MonoDataset(data.Dataset):
 
     def get_depth(self, folder, frame_index, side, do_flip):
         raise NotImplementedError
+    
+    '''
+        Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+    '''
+    # =====================================
+    def get_item_custom(self, inputs, folder, frame_index, side, do_flip):
+        # implement by derived class if needed.
+        return
+    # =====================================
