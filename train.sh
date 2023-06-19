@@ -42,7 +42,7 @@ SEED=63
 
 python -W ignore train.py \
     --data_path $DATA_PATH \
-    --model_name LM_KITTI \
+    --model_name LM_AB_Triplet \
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --num_workers $WORKERS \
@@ -50,8 +50,8 @@ python -W ignore train.py \
     --png \
     --random_seed $SEED \
     --lr 0.0001 5e-6 31 1e-4 0.0001 31 \
-    --disable_auto_blur \
-    --disable_ambiguity_mask \
-    --disable_triplet_loss \
-    --disable_hardest_neg \
-    --disable_isolated_triplet
+    # --disable_auto_blur \
+    # --disable_ambiguity_mask \
+    # --disable_triplet_loss \
+    # --disable_hardest_neg \
+    # --disable_isolated_triplet
