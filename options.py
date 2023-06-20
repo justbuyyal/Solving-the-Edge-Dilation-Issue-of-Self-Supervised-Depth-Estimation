@@ -20,6 +20,20 @@ class LiteMonoOptions:
                                  help="log directory",
                                  default="./tmp")
         '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        self.parser.add_argument("--dist_wt",
+                                 type=float,
+                                 help="distillation loss weight",
+                                 default=1.0)
+        self.parser.add_argument("--thre",
+                                 type=float,
+                                 help="threshold for edge map",
+                                 default=0.95)
+        # =====================================
+        
+        '''
           Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''
         # =====================================
@@ -63,11 +77,11 @@ class LiteMonoOptions:
         self.parser.add_argument("--disable_isolated_triplet",
                                  default=False, action="store_true")
         self.parser.add_argument("--sgt", type=float, default=0.1, help='weight factor for sgt loss')
-        self.parser.add_argument("--sgt_scales", nargs='+', type=int, default=[3, 2, 1],
+        self.parser.add_argument("--sgt_scales", nargs='+', type=int, default=[2, 1],
                                  help='layer configurations for sgt loss')
         self.parser.add_argument("--sgt_margin", type=float, default=0.35, help='margin for sgt loss')
         self.parser.add_argument("--sgt_isolated_margin", type=float, default=0.65, help='margin for isolated sgt loss')
-        self.parser.add_argument("--sgt_kernel_size", type=int, nargs='+', default=[5, 5, 5],
+        self.parser.add_argument("--sgt_kernel_size", type=int, nargs='+', default=[5, 5],
                                  help='kernel size (local patch size) for sgt loss')
         # =====================================
 

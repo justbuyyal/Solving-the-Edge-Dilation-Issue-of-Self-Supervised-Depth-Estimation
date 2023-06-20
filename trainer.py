@@ -17,6 +17,16 @@ from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedSch
 
 import wandb
 
+'''
+    Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+'''
+# =====================================
+from dpt_networks.dpt_depth import DPTDepthModel
+import kornia
+import pickle
+from crf_networks.NewCRFDepth import NewCRFDepth
+# =====================================
+
 # torch.backends.cudnn.benchmark = True
 
 
@@ -59,13 +69,42 @@ class Trainer:
                                                    drop_path_rate=self.opt.drop_path,
                                                    width=self.opt.width, height=self.opt.height)
 
-        self.models["encoder"].to(self.device)
+        
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
                                                      self.opt.scales)
-        self.models["depth"].to(self.device)
+        
         self.parameters_to_train += list(self.models["depth"].parameters())
+        
+        '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        # self.mono_model = DPTDepthModel(
+        #     path='./dpt_networks/weights/dpt_hybrid_kitti-cb926ef4.pt',
+        #     backbone='vitb_rn50_384',
+        #     non_negative=True
+        # )
+        # NewCRFs (CVPR 2022)
+        self.mono_model = NewCRFDepth(
+            version='large07',
+            inv_depth=False,
+            max_depth=80,
+            pretrained=None
+        )
+        self.mono_model.train()
+        self.mono_model = torch.nn.DataParallel(self.mono_model)
+        self.mono_model.cuda()
+        checkpoint = torch.load('/home/user/code/crf_networks/weights/model_kittieigen.ckpt', map_location='cpu')
+        self.mono_model.load_state_dict(checkpoint['model'])
+        del checkpoint
+        self.mono_model.eval()
+        self.mono_model.requires_grad=False
+        self.depth_criterion = nn.HuberLoss(delta=0.8)
+        self.SOFT = nn.Softsign()
+        self.ABSSIGN = torch.sign
+        # =====================================
 
         if self.use_pose_net:
             if self.opt.pose_model_type == "separate_resnet":
@@ -74,7 +113,6 @@ class Trainer:
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
 
-                self.models_pose["pose_encoder"].to(self.device)
                 self.parameters_to_train_pose += list(self.models_pose["pose_encoder"].parameters())
 
                 self.models_pose["pose"] = networks.PoseDecoder(
@@ -90,7 +128,6 @@ class Trainer:
                 self.models_pose["pose"] = networks.PoseCNN(
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
-            self.models_pose["pose"].to(self.device)
             self.parameters_to_train_pose += list(self.models_pose["pose"].parameters())
 
         if self.opt.predictive_mask:
@@ -139,6 +176,7 @@ class Trainer:
         print("Training model named:\n  ", self.opt.model_name)
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
+        print(f"CUDA DEVICE INDEX: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
@@ -159,13 +197,13 @@ class Trainer:
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=self.opt.num_workers, pin_memory=False, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=self.opt.num_workers, pin_memory=False, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -328,7 +366,6 @@ class Trainer:
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
             late_phase = self.step % 2000 == 0
-            # late_phase = self.step % 10 == 0
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
@@ -378,11 +415,40 @@ class Trainer:
 
             outputs = self.models["depth"](features[0])
         else:
-            # Otherwise, we only feed the image with frame_id 0 through the depth encoder
+            # Two stages: First Stage forward Teacher, Second Stage forward Student
+            for i in range(2):
+                # Teacher Model
+                if i == 0:
+                    '''
+                        Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+                    '''
+                    # =====================================
+                    self.models["encoder"] = self.models["encoder"].cpu()
+                    self.models["depth"] = self.models["depth"].cpu()
+                    self.models_pose["pose"] = self.models_pose["pose"].cpu()
+                    self.models_pose["pose_encoder"] = self.models_pose["pose_encoder"].cpu()
+                    self.mono_model.to(self.device)
+                    with torch.no_grad():
+                        # fromMono, feature_dpt = self.mono_model((inputs[("color_aug", 0, 0)]-0.5)/0.5 )
+                        fromMono = self.mono_model((inputs["color_aug", 0, 0]-0.5)/0.5) # Depth: (B, 1, H, W)
+                        # print('NeWCRFs:\n {}'.format(fromMono))
+                        self.mono_model = self.mono_model.cpu()
+                        output_dep = (1/(fromMono + 1e-6)).detach().cpu().numpy()
+                        # print('NeWCRFs Norm:\n {}'.format(output_dep))
+                        with open('./crf_networks/features/new_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'wb') as f:
+                            pickle.dump(output_dep, f)
+                    # =====================================
+                # Student Model
+                else:
+                    # Otherwise, we only feed the image with frame_id 0 through the depth encoder
+                    self.models["encoder"].to(self.device)
+                    self.models["depth"].to(self.device)
+                    self.models_pose["pose"].to(self.device)
+                    self.models_pose["pose_encoder"].to(self.device)
 
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
+                    features = self.models["encoder"](inputs["color_aug", 0, 0])
 
-            outputs = self.models["depth"](features)
+                    outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -491,7 +557,7 @@ class Trainer:
                                            [0], 4, is_train=False, img_ext=img_ext)
         # Fix batch-size = 16
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=self.opt.num_workers,
-                                pin_memory=True, drop_last=False)
+                                pin_memory=False, drop_last=False)
         pred_disps = []
         with torch.no_grad():
             for data in dataloader:
@@ -740,9 +806,59 @@ class Trainer:
             losses['sgt_loss'] = sgt_loss
             total_loss = total_loss + sgt_loss * self.opt.sgt
         # =====================================
+        # total_loss /= self.num_scales
         losses["loss"] = total_loss
+        
+        '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        # load teacher forward features
+        with open('./crf_networks/features/new_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'rb') as f:
+            outputs["fromMono_dep"] = torch.from_numpy(pickle.load(f)).to(self.device)
+        # print('Lite-Mono: \n {}'.format(outputs[('depth', 0, 0)]))
+        # median alignment for ease of use
+        fac = (torch.median(outputs[('depth', 0, 0)]) / torch.median(outputs["fromMono_dep"])).detach()
+        target_depth = outputs["fromMono_dep"] * fac
+
+        # spatial gradient
+        edge_target = kornia.filters.spatial_gradient(target_depth)
+        edge_pred = kornia.filters.spatial_gradient(outputs[('depth', 0, 0)])
+
+        # convert to magnitude map
+        edge_target =  torch.sqrt(edge_target[:,:,0,:,:]**2 + edge_target[:,:,1,:,:]**2 + 1e-6)
+        edge_target = edge_target[:,:,5:-5,5:-5]
+        # thresholding
+        bar_target = torch.quantile(edge_target, self.opt.thre)
+        pos = edge_target > bar_target
+        mask_target = self.ABSSIGN(edge_target - bar_target)[pos]
+        mask_target = mask_target.detach()
+
+        # convert prediction to magnitude map 
+        edge_pred =  torch.sqrt(edge_pred[:,:,0,:,:]**2 + edge_pred[:,:,1,:,:]**2 + 1e-6)
+        edge_pred = F.normalize(edge_pred.view(edge_pred.size(0), -1), dim=1, p=2).view(edge_pred.size())
+        edge_pred = edge_pred[:,:,5:-5,5:-5]
+        bar_pred = torch.quantile(edge_pred, self.opt.thre).detach()
+
+        # soft sign for differentiable
+        mask_pred = self.SOFT(edge_pred - bar_pred)[pos]
+
+        loss_depth_criterion = 0.001 * self.depth_criterion(mask_pred, mask_target)
+        losses["loss/pseudo_depth"] = self.compute_ssim_loss(outputs["fromMono_dep"], outputs[('depth', 0, 0)]).mean() + loss_depth_criterion
+        losses["loss"] += self.opt.dist_wt * losses["loss/pseudo_depth"]
+        # =====================================
         return losses
 
+    '''
+        Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+    '''
+    # =====================================
+    def compute_ssim_loss(self, pred, target):
+        """
+        Computes reprojection loss between a batch of predicted and target images
+        """
+        return self.ssim(pred, target).mean(1, True)
+    # =====================================
     
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
@@ -754,9 +870,9 @@ class Trainer:
         total_loss = 0
 
         for s, kernel_size in zip(self.opt.sgt_scales, self.opt.sgt_kernel_size):
-            # s: [3, 2, 1]
+            # s: [2, 1]
             pad = kernel_size // 2
-            h, w = self.opt.height // 2 ** s, self.opt.width // 2 ** s
+            h, w = self.opt.height // 2 ** (s+1), self.opt.width // 2 ** (s+1)
             seg = F.interpolate(seg_target, size=(h, w), mode='nearest')
             seg_pad = F.pad(seg, pad=[pad] * 4, value=-1)
             patches = seg_pad.unfold(2, kernel_size, 1).unfold(3, kernel_size, 1)

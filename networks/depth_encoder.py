@@ -433,6 +433,7 @@ class LiteMono(nn.Module):
                         '''
                             SpectFormer: Frequency and Attention is what you need in a Vision Transformer
                                 > Add Before LGFI Block (V1)
+                                > Replace LGFI Block as SpectBlock (V4)
                         '''
                         # =====================================
                         # stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
@@ -440,20 +441,32 @@ class LiteMono(nn.Module):
                         #                         use_pos_emb=use_pos_embd_xca[i]
                         #                         ))
                         # =====================================
-                        stage_blocks.append(LGFI(dim=self.dims[i], drop_path=dp_rates[cur + j],
-                                                 expan_ratio=expan_ratio,
-                                                 use_pos_emb=use_pos_embd_xca[i], num_heads=heads[i],
-                                                 layer_scale_init_value=layer_scale_init_value,
-                                                 ))
                         '''
                             SpectFormer: Frequency and Attention is what you need in a Vision Transformer
-                                > Add Before LGFI Block (V2)
+                                > Add at First Block & Replace (V3)
                         '''
                         # =====================================
-                        stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
-                                                h=(height//4)//(2**i), w=(width//4)//(2**i),
-                                                use_pos_emb=False
+                        # if i == 0:
+                        #     stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
+                        #                             h=(height//4)//(2**i), w=(width//4)//(2**i),
+                        #                             use_pos_emb=use_pos_embd_xca[i]
+                        #                             ))
+                        # else:
+                        # =====================================
+                        stage_blocks.append(LGFI(dim=self.dims[i], drop_path=dp_rates[cur + j],
+                                                expan_ratio=expan_ratio,
+                                                use_pos_emb=use_pos_embd_xca[i], num_heads=heads[i],
+                                                layer_scale_init_value=layer_scale_init_value,
                                                 ))
+                        '''
+                            SpectFormer: Frequency and Attention is what you need in a Vision Transformer
+                                > Add After LGFI Block (V2)
+                        '''
+                        # =====================================
+                        # stage_blocks.append(SpectBlock(dim=self.dims[i], drop_path=dp_rates[cur + i],
+                        #                         h=(height//4)//(2**i), w=(width//4)//(2**i),
+                        #                         use_pos_emb=False
+                        #                         ))
                         # =====================================
                     else:
                         raise NotImplementedError

@@ -136,3 +136,7 @@ adam.pth
 *.npz
 pretrained/
 tmp/
+dpt_networks/features
+dpt_networks/weights
+crf_networks/features
+crf_networks/weights
