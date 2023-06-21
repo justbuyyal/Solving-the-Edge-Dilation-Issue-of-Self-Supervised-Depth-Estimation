@@ -8,7 +8,7 @@ SEED=63
 
 python -W ignore -m train \
     --data_path $DATA_PATH \
-    --model_name LM_New_Dist_tiny_work_$1 \
+    --model_name LM_AB_Triplet_DCN_tiny_work_$1 \
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --mypretrain ./pretrained/lite-mono-pretrain.pth \

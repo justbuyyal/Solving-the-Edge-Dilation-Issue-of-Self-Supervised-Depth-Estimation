@@ -1,3 +1,4 @@
+from __future__ import absolute_import, division, print_function
 import numpy as np
 import torch
 from torch import nn
@@ -5,7 +6,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath
 import math
 import torch.cuda
-
+from ASFF.utils.DCN.modules import DeformConv2dPack
 
 class PositionalEncodingFourier(nn.Module):
     """
@@ -219,8 +220,17 @@ class CDilated(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
-                              dilation=d, groups=groups)
+        '''ORIGINAL'''
+        # self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
+        #                       dilation=d, groups=groups)
+        
+        '''
+            Deformable ConvNets v2: More Deformable, Better Results
+        '''
+        # =====================================
+        self.conv = DeformConv2dPack(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
+                                 dilation=d, groups=groups)
+        # =====================================
 
     def forward(self, input):
         """

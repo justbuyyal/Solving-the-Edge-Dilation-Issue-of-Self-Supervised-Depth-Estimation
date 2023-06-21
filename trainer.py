@@ -21,10 +21,10 @@ import wandb
     Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
 '''
 # =====================================
-from dpt_networks.dpt_depth import DPTDepthModel
-import kornia
-import pickle
-from crf_networks.NewCRFDepth import NewCRFDepth
+# from dpt_networks.dpt_depth import DPTDepthModel
+# import kornia
+# import pickle
+# from crf_networks.NewCRFDepth import NewCRFDepth
 # =====================================
 
 # torch.backends.cudnn.benchmark = True
@@ -68,13 +68,13 @@ class Trainer:
         self.models["encoder"] = networks.LiteMono(model=self.opt.model,
                                                    drop_path_rate=self.opt.drop_path,
                                                    width=self.opt.width, height=self.opt.height)
-
-        
+        self.models["encoder"].to(self.device)
+                    
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
                                                      self.opt.scales)
-        
+        self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
         
         '''
@@ -86,24 +86,11 @@ class Trainer:
         #     backbone='vitb_rn50_384',
         #     non_negative=True
         # )
-        # NewCRFs (CVPR 2022)
-        self.mono_model = NewCRFDepth(
-            version='large07',
-            inv_depth=False,
-            max_depth=80,
-            pretrained=None
-        )
-        self.mono_model.train()
-        self.mono_model = torch.nn.DataParallel(self.mono_model)
-        self.mono_model.cuda()
-        checkpoint = torch.load('/home/user/code/crf_networks/weights/model_kittieigen.ckpt', map_location='cpu')
-        self.mono_model.load_state_dict(checkpoint['model'])
-        del checkpoint
-        self.mono_model.eval()
-        self.mono_model.requires_grad=False
-        self.depth_criterion = nn.HuberLoss(delta=0.8)
-        self.SOFT = nn.Softsign()
-        self.ABSSIGN = torch.sign
+        # self.mono_model.eval()
+        # self.mono_model.requires_grad=False
+        # self.depth_criterion = nn.HuberLoss(delta=0.8)
+        # self.SOFT = nn.Softsign()
+        # self.ABSSIGN = torch.sign
         # =====================================
 
         if self.use_pose_net:
@@ -112,6 +99,8 @@ class Trainer:
                     self.opt.num_layers,
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
+                
+                self.models_pose["pose_encoder"].to(self.device)
 
                 self.parameters_to_train_pose += list(self.models_pose["pose_encoder"].parameters())
 
@@ -119,6 +108,7 @@ class Trainer:
                     self.models_pose["pose_encoder"].num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2)
+                self.models_pose["pose"].to(self.device)
 
             elif self.opt.pose_model_type == "shared":
                 self.models_pose["pose"] = networks.PoseDecoder(
@@ -415,13 +405,14 @@ class Trainer:
 
             outputs = self.models["depth"](features[0])
         else:
+            '''
             # Two stages: First Stage forward Teacher, Second Stage forward Student
             for i in range(2):
                 # Teacher Model
                 if i == 0:
-                    '''
-                        Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-                    '''
+            '''
+                        # Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+            '''
                     # =====================================
                     self.models["encoder"] = self.models["encoder"].cpu()
                     self.models["depth"] = self.models["depth"].cpu()
@@ -429,13 +420,10 @@ class Trainer:
                     self.models_pose["pose_encoder"] = self.models_pose["pose_encoder"].cpu()
                     self.mono_model.to(self.device)
                     with torch.no_grad():
-                        # fromMono, feature_dpt = self.mono_model((inputs[("color_aug", 0, 0)]-0.5)/0.5 )
-                        fromMono = self.mono_model((inputs["color_aug", 0, 0]-0.5)/0.5) # Depth: (B, 1, H, W)
-                        # print('NeWCRFs:\n {}'.format(fromMono))
+                        fromMono, feature_dpt = self.mono_model((inputs[("color_aug", 0, 0)]-0.5)/0.5 )
                         self.mono_model = self.mono_model.cpu()
                         output_dep = (1/(fromMono + 1e-6)).detach().cpu().numpy()
-                        # print('NeWCRFs Norm:\n {}'.format(output_dep))
-                        with open('./crf_networks/features/new_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'wb') as f:
+                        with open('./dpt_networks/features/dep_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'wb') as f:
                             pickle.dump(output_dep, f)
                     # =====================================
                 # Student Model
@@ -449,6 +437,10 @@ class Trainer:
                     features = self.models["encoder"](inputs["color_aug", 0, 0])
 
                     outputs = self.models["depth"](features)
+            '''
+            features = self.models["encoder"](inputs["color_aug", 0, 0])
+
+            outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -814,38 +806,37 @@ class Trainer:
         '''
         # =====================================
         # load teacher forward features
-        with open('./crf_networks/features/new_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'rb') as f:
-            outputs["fromMono_dep"] = torch.from_numpy(pickle.load(f)).to(self.device)
-        # print('Lite-Mono: \n {}'.format(outputs[('depth', 0, 0)]))
-        # median alignment for ease of use
-        fac = (torch.median(outputs[('depth', 0, 0)]) / torch.median(outputs["fromMono_dep"])).detach()
-        target_depth = outputs["fromMono_dep"] * fac
+        # with open('./dpt_networks/features/dep_{}.pkl'.format(os.environ.get('CUDA_VISIBLE_DEVICES')), 'rb') as f:
+        #     outputs["fromMono_dep"] = torch.from_numpy(pickle.load(f)).to(self.device)
+        # # median alignment for ease of use
+        # fac = (torch.median(outputs[('depth', 0, 0)]) / torch.median(outputs["fromMono_dep"])).detach()
+        # target_depth = outputs["fromMono_dep"] * fac
 
-        # spatial gradient
-        edge_target = kornia.filters.spatial_gradient(target_depth)
-        edge_pred = kornia.filters.spatial_gradient(outputs[('depth', 0, 0)])
+        # # spatial gradient
+        # edge_target = kornia.filters.spatial_gradient(target_depth)
+        # edge_pred = kornia.filters.spatial_gradient(outputs[('depth', 0, 0)])
 
-        # convert to magnitude map
-        edge_target =  torch.sqrt(edge_target[:,:,0,:,:]**2 + edge_target[:,:,1,:,:]**2 + 1e-6)
-        edge_target = edge_target[:,:,5:-5,5:-5]
-        # thresholding
-        bar_target = torch.quantile(edge_target, self.opt.thre)
-        pos = edge_target > bar_target
-        mask_target = self.ABSSIGN(edge_target - bar_target)[pos]
-        mask_target = mask_target.detach()
+        # # convert to magnitude map
+        # edge_target =  torch.sqrt(edge_target[:,:,0,:,:]**2 + edge_target[:,:,1,:,:]**2 + 1e-6)
+        # edge_target = edge_target[:,:,5:-5,5:-5]
+        # # thresholding
+        # bar_target = torch.quantile(edge_target, self.opt.thre)
+        # pos = edge_target > bar_target
+        # mask_target = self.ABSSIGN(edge_target - bar_target)[pos]
+        # mask_target = mask_target.detach()
 
-        # convert prediction to magnitude map 
-        edge_pred =  torch.sqrt(edge_pred[:,:,0,:,:]**2 + edge_pred[:,:,1,:,:]**2 + 1e-6)
-        edge_pred = F.normalize(edge_pred.view(edge_pred.size(0), -1), dim=1, p=2).view(edge_pred.size())
-        edge_pred = edge_pred[:,:,5:-5,5:-5]
-        bar_pred = torch.quantile(edge_pred, self.opt.thre).detach()
+        # # convert prediction to magnitude map 
+        # edge_pred =  torch.sqrt(edge_pred[:,:,0,:,:]**2 + edge_pred[:,:,1,:,:]**2 + 1e-6)
+        # edge_pred = F.normalize(edge_pred.view(edge_pred.size(0), -1), dim=1, p=2).view(edge_pred.size())
+        # edge_pred = edge_pred[:,:,5:-5,5:-5]
+        # bar_pred = torch.quantile(edge_pred, self.opt.thre).detach()
 
-        # soft sign for differentiable
-        mask_pred = self.SOFT(edge_pred - bar_pred)[pos]
+        # # soft sign for differentiable
+        # mask_pred = self.SOFT(edge_pred - bar_pred)[pos]
 
-        loss_depth_criterion = 0.001 * self.depth_criterion(mask_pred, mask_target)
-        losses["loss/pseudo_depth"] = self.compute_ssim_loss(outputs["fromMono_dep"], outputs[('depth', 0, 0)]).mean() + loss_depth_criterion
-        losses["loss"] += self.opt.dist_wt * losses["loss/pseudo_depth"]
+        # loss_depth_criterion = 0.001 * self.depth_criterion(mask_pred, mask_target)
+        # losses["loss/pseudo_depth"] = self.compute_ssim_loss(outputs["fromMono_dep"], outputs[('depth', 0, 0)]).mean() + loss_depth_criterion
+        # losses["loss"] += self.opt.dist_wt * losses["loss/pseudo_depth"]
         # =====================================
         return losses
 
