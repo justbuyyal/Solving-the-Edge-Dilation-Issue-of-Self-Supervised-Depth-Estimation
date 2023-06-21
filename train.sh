@@ -42,7 +42,7 @@ SEED=63
 
 python -W ignore train.py \
     --data_path $DATA_PATH \
-    --model_name LM_AB_Triplet \
+    --model_name LM_AB_Triplet_DCNv2 \
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --num_workers $WORKERS \

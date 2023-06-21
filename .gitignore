@@ -136,3 +136,6 @@ adam.pth
 *.npz
 pretrained/
 tmp/
+dpt_networks/
+ASFF/
+apex/

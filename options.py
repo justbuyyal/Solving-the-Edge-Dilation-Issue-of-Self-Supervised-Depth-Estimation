@@ -20,6 +20,20 @@ class LiteMonoOptions:
                                  help="log directory",
                                  default="./tmp")
         '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        self.parser.add_argument("--dist_wt",
+                                 type=float,
+                                 help="distillation loss weight",
+                                 default=1.0)
+        self.parser.add_argument("--thre",
+                                 type=float,
+                                 help="threshold for edge map",
+                                 default=0.95)
+        # =====================================
+        
+        '''
           Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''
         # =====================================

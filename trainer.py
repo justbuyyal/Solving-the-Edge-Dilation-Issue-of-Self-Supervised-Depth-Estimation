@@ -18,6 +18,14 @@ from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedSch
 
 import wandb
 
+'''
+    Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+'''
+# =====================================
+# from dpt_networks.dpt_depth import DPTDepthModel
+# import kornia
+# =====================================
+
 # torch.backends.cudnn.benchmark = True
 
 
@@ -67,6 +75,23 @@ class Trainer:
                                                      self.opt.scales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
+        
+        '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        # self.mono_model = DPTDepthModel(
+        #     path='./dpt_networks/weights/dpt_hybrid_kitti-cb926ef4.pt',
+        #     backbone='vitb_rn50_384',
+        #     non_negative=True
+        # )
+        # self.mono_model.requires_grad=False
+        # self.mono_model.to(self.device)
+        # self.mono_model.eval()
+        # self.depth_criterion = nn.HuberLoss(delta=0.8)
+        # self.SOFT = nn.Softsign()
+        # self.ABSSIGN = torch.sign
+        # =====================================
 
         if self.use_pose_net:
             if self.opt.pose_model_type == "separate_resnet":
@@ -385,6 +410,15 @@ class Trainer:
             features = self.models["encoder"](inputs["color_aug", 0, 0])
 
             outputs = self.models["depth"](features)
+            
+            '''
+                Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+            '''
+            # =====================================
+            # with torch.no_grad():
+            #     outputs['fromMono'], feature_dpt = self.mono_model((inputs["color_aug", 0, 0]))
+            #     outputs['fromMono_dep'] = (1/(outputs['fromMono'] + 1e-6))
+            # =====================================
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -744,7 +778,54 @@ class Trainer:
         # else:
         #     total_loss /= self.num_scales
         losses["loss"] = total_loss
+        
+        '''
+            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+        '''
+        # =====================================
+        # median alignment for ease of use
+        # fac = (torch.median(outputs[('depth', 0, 0)]) / torch.median(outputs["fromMono_dep"])).detach()
+        # target_depth = outputs["fromMono_dep"] * fac
+
+        # # spatial gradient
+        # edge_target = kornia.filters.spatial_gradient(target_depth)
+        # edge_pred = kornia.filters.spatial_gradient(outputs[('depth', 0, 0)])
+
+        # # convert to magnitude map
+        # edge_target =  torch.sqrt(edge_target[:,:,0,:,:]**2 + edge_target[:,:,1,:,:]**2 + 1e-6)
+        # edge_target = edge_target[:,:,5:-5,5:-5]
+        # # thresholding
+        # bar_target = torch.quantile(edge_target, self.opt.thre)
+        # pos = edge_target > bar_target
+        # mask_target = self.ABSSIGN(edge_target - bar_target)[pos]
+        # mask_target = mask_target.detach()
+
+        # # convert prediction to magnitude map 
+        # edge_pred =  torch.sqrt(edge_pred[:,:,0,:,:]**2 + edge_pred[:,:,1,:,:]**2 + 1e-6)
+        # edge_pred = F.normalize(edge_pred.view(edge_pred.size(0), -1), dim=1, p=2).view(edge_pred.size())
+        # edge_pred = edge_pred[:,:,5:-5,5:-5]
+        # bar_pred = torch.quantile(edge_pred, self.opt.thre).detach()
+
+        # # soft sign for differentiable
+        # mask_pred = self.SOFT(edge_pred - bar_pred)[pos]
+
+        # loss_depth_criterion = 0.001 * self.depth_criterion(mask_pred, mask_target)
+        # losses["loss/pseudo_depth"] = self.compute_ssim_loss(outputs["fromMono_dep"], outputs[('depth', 0, 0)]).mean() + loss_depth_criterion
+        # losses["loss"] += self.opt.dist_wt * losses["loss/pseudo_depth"]
+        # =====================================
+        
         return losses
+    
+    '''
+        Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
+    '''
+    # =====================================
+    # def compute_ssim_loss(self, pred, target):
+    #     """
+    #     Computes reprojection loss between a batch of predicted and target images
+    #     """
+    #     return self.ssim(pred, target).mean(1, True)
+    # =====================================
     
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
