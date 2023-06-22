@@ -127,20 +127,27 @@ def evaluate(opt):
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
+                    print(f'Flip Image shape: {torch.flip(input_color, [3]).shape}')
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
                 flops, params, flops_e, params_e, flops_d, params_d = profile_once(encoder, depth_decoder, input_color)
                 t1 = time_sync()
+                print(f'Input shape (post): {input_color.shape}')
                 output = depth_decoder(encoder(input_color))
+                print(f'Output (post): {output[("disp", 0)].shape}')
                 t2 = time_sync()
 
                 pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
+                print(f'Prediction Shape (two img): {pred_disp.shape}')
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
+                print(f'Prediction Shape (cpu): {pred_disp.shape}')
 
                 if opt.post_process:
                     N = pred_disp.shape[0] // 2
+                    print(f'flip output: {pred_disp[N:, :, ::-1].shape}')
                     pred_disp = batch_post_process_disparity(pred_disp[:N], pred_disp[N:, :, ::-1])
-
+                    print(f'Prediction Shape (one img): {pred_disp.shape}')
+                
                 pred_disps.append(pred_disp)
 
         pred_disps = np.concatenate(pred_disps)

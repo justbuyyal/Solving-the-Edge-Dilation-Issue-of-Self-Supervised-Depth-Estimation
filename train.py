@@ -19,6 +19,12 @@ def copy_code(opts):
     if os.path.exists(dst_path):
         shutil.rmtree(dst_path)
     os.makedirs(dst_path, exist_ok=True)
+    # Make Uncertainty Folder
+    if opts.uncertainty:
+        unc_path = os.path.join(os.getcwd(), opts.log_dir, opts.model_name, 'uncert')
+        if os.path.exists(unc_path):
+            shutil.rmtree(unc_path)
+        os.makedirs(unc_path, exist_ok=True)
     for file in copy_files:
         src_path = os.path.join(os.getcwd(), file)
         if os.path.isdir(src_path):

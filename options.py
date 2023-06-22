@@ -19,6 +19,11 @@ class LiteMonoOptions:
                                  type=str,
                                  help="log directory",
                                  default="./tmp")
+        '''MY'''
+        self.parser.add_argument("--uncertainty",
+                                 default=False,
+                                 action="store_true",
+                                 help="Using uncertainty map for training")
         '''
             Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
         '''

@@ -369,6 +369,10 @@ class Trainer:
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
+                
+                '''MY uncertainty'''
+                if self.opt.uncertainty:
+                    self.save_uncert(outputs)
 
                 self.log("train", inputs, outputs, losses)
                 # self.val()
@@ -406,9 +410,13 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
-
+            '''MY uncertainty'''
+            input_img = inputs["color_aug", 0, 0]
+            if self.opt.uncertainty:
+                features = self.models["encoder"](torch.cat((input_img, torch.flip(input_img, [3])), 0))
+            else:
+                features = self.models["encoder"](input_img)
+            
             outputs = self.models["depth"](features)
             
             '''
@@ -600,7 +608,17 @@ class Trainer:
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
-
+            '''MY uncertrainty'''
+            # =====================================
+            if self.opt.uncertainty:
+                N = depth.shape[0] // 2
+                depth_ = depth[:N]
+                flipped_depth = depth[N:]
+                back_flip_depth = torch.flip(flipped_depth, [3])
+                outputs[("uncertainty", scale)] = torch.abs(depth_ - back_flip_depth)
+                # Get refined depth from Avg(depth_, back_flip_depth)
+                depth = torch.mean((depth_ + back_flip_depth))
+            # =====================================
             outputs[("depth", 0, scale)] = depth
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
@@ -667,8 +685,8 @@ class Trainer:
                 source_scale = scale
             else:
                 source_scale = 0
-
-            disp = outputs[("disp", scale)]
+            '''MY uncertainty'''
+            disp = outputs[("disp", scale)] if not self.opt.uncertainty else outputs[("disp", scale)][:self.opt.batch_size]
             '''ORIGINAL'''
             # color = inputs[("color", 0, scale)]
             '''
@@ -762,6 +780,15 @@ class Trainer:
             smooth_loss = get_smooth_loss(norm_disp, color)
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            
+            '''MY (Uncertainty Loss)'''
+            # =====================================
+            if self.opt.uncertainty:
+                uncertainty_map = outputs[("uncertainty", scale)]
+                norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min())
+                losses["uncert_loss/{}".format(scale)] = torch.mean(norm_uncertainty)
+                loss += losses["uncert_loss/{}".format(scale)]
+            # =====================================
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
@@ -776,7 +803,7 @@ class Trainer:
         # =====================================
         '''ORIGINAL'''
         # else:
-        #     total_loss /= self.num_scales
+        # total_loss /= self.num_scales
         losses["loss"] = total_loss
         
         '''
@@ -851,7 +878,8 @@ class Trainer:
 
             is_boundary = (pos_num >= kernel_size - 1) & (neg_num >= kernel_size - 1)
 
-            feature = outputs[('d_feature', s)]
+            '''MY uncertainty'''
+            feature = outputs[('d_feature', s)] if not self.opt.uncertainty else outputs[('d_feature', s)][:self.opt.batch_size]
             affinity = self.compute_affinity(feature, kernel_size=kernel_size)
             neg_dist = neg_idx * affinity
 
@@ -949,7 +977,8 @@ class Trainer:
         This isn't particularly accurate as it averages over the entire batch,
         so is only used to give an indication of validation performance
         """
-        depth_pred = outputs[("depth", 0, 0)]
+        '''MY uncertainty'''
+        depth_pred = outputs[("depth", 0, 0)] if not self.opt.uncertainty else outputs[("depth", 0, 0)][:self.opt.batch_size]
         depth_pred = torch.clamp(F.interpolate(
             depth_pred, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
         depth_pred = depth_pred.detach()
@@ -972,6 +1001,36 @@ class Trainer:
 
         for i, metric in enumerate(self.depth_metric_names):
             losses[metric] = np.array(depth_errors[i].cpu())
+        
+    '''MY uncertainty'''
+    def save_uncert(self, outputs):
+        import cv2
+        # Save a batch of uncertainty map as source scale
+        B, _, H, W = outputs[("uncertainty", 0)].shape
+        for i in range(B):
+            # depth map
+            depth_map = outputs[("depth", 0, 0)][i].detach().cpu().numpy
+            depth_map = torch.clamp(F.interpolate(
+            depth_map, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
+            depth_map = depth_map.detach().cpu().numpy() # 1, 375, 1242
+            # Save color depth map
+            depth_color = cv2.applyColorMap(depth_map, cv2.COLORMAP_MAGMA)
+            depth_name = str(i+1) + '_depth.jpg'
+            depth_path = os.path.join(self.log_path, 'uncert', depth_name)
+            cv2.imwrite(depth_path, depth_color)
+            # uncertainty map
+            uncertainty_map = (outputs[("uncertainty", 0)][i]) # 1, H, W
+            uncertainty_map = torch.squeeze(uncertainty_map) # H, W
+            norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min()) # [0, 1]
+            norm_uncertainty = torch.clamp(
+                F.interpolate(norm_uncertainty, [375, 1242], mode='bilinear', align_corners=False),  # [375, 1242]
+                1e-3,
+                1) # [1e-3, 1]
+            # Save uncertainty map
+            uncertainty_image = cv2.applyColorMap((norm_uncertainty * 255).astype(np.uint8), cv2.COLORMAP_HOT)
+            uncert_name = str(i+1) + '.jpg'
+            uncert_path = os.path.join(self.log_path, 'uncert', uncert_name)
+            cv2.imwrite(uncert_path, uncertainty_image)
 
     def log_time(self, batch_idx, duration, loss):
         """Print a logging statement to the terminal

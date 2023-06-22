@@ -1,6 +1,6 @@
 DATA_PATH=~/datasets/kitti/
 EPOCHS=30
-BATCH_SIZE=24
+BATCH_SIZE=18
 WORKERS=10
 SEED=63
 
@@ -42,7 +42,7 @@ SEED=63
 
 python -W ignore train.py \
     --data_path $DATA_PATH \
-    --model_name LM_AB_Triplet_DCNv2 \
+    --model_name LM_AB_Triplet_Uncert \
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --num_workers $WORKERS \
@@ -50,6 +50,7 @@ python -W ignore train.py \
     --png \
     --random_seed $SEED \
     --lr 0.0001 5e-6 31 1e-4 0.0001 31 \
+    --uncertainty
     # --disable_auto_blur \
     # --disable_ambiguity_mask \
     # --disable_triplet_loss \
