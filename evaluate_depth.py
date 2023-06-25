@@ -142,7 +142,6 @@ def evaluate(opt):
                     pred_disp = batch_post_process_disparity(pred_disp[:N], pred_disp[N:, :, ::-1])
 
                 pred_disps.append(pred_disp)
-
         pred_disps = np.concatenate(pred_disps)
 
     else:

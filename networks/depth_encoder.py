@@ -6,7 +6,12 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath
 import math
 import torch.cuda
-from ASFF.utils.DCN.modules import DeformConv2dPack
+'''
+    Deformable ConvNets v2: More Deformable, Better Results
+'''
+# =====================================
+# from ASFF.utils.DCN.modules import ModulatedDeformConv2dPack
+# =====================================
 
 class PositionalEncodingFourier(nn.Module):
     """
@@ -188,10 +193,19 @@ class Conv(nn.Module):
         super().__init__()
 
         self.bn_act = bn_act
-
+        '''ORIGINAL'''
         self.conv = nn.Conv2d(nIn, nOut, kernel_size=kSize,
                               stride=stride, padding=padding,
                               dilation=dilation, groups=groups, bias=bias)
+        
+        '''
+            Deformable ConvNets v2: More Deformable, Better Results
+        '''
+        # =====================================
+        # self.conv = ModulatedDeformConv2dPack(nIn, nOut, kernel_size=kSize,
+        #                       stride=stride, padding=padding,
+        #                       dilation=dilation, groups=groups, bias=bias)
+        # =====================================
 
         if self.bn_act:
             self.bn_gelu = BNGELU(nOut)
@@ -221,15 +235,15 @@ class CDilated(nn.Module):
         super().__init__()
         padding = int((kSize - 1) / 2) * d
         '''ORIGINAL'''
-        # self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
-        #                       dilation=d, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
+                              dilation=d, groups=groups)
         
         '''
             Deformable ConvNets v2: More Deformable, Better Results
         '''
         # =====================================
-        self.conv = DeformConv2dPack(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
-                                 dilation=d, groups=groups)
+        # self.conv = ModulatedDeformConv2dPack(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
+        #                          dilation=d, groups=groups)
         # =====================================
 
     def forward(self, input):
@@ -505,14 +519,20 @@ class LiteMono(nn.Module):
     def forward_features(self, x):
         features = []
         x = (x - 0.45) / 0.225
+        # print(f'image shape: {x.shape}')
 
         x_down = []
         for i in range(4):
             x_down.append(self.input_downsample[i](x))
 
         tmp_x = []
+        # print(f'x_down[0] shape: {x_down[0].shape}')
         x = self.downsample_layers[0](x)
-        x = self.stem2(torch.cat((x, x_down[0]), dim=1))
+        # print(f'stem1 shape: {x.shape}')
+        k = torch.cat((x, x_down[0]), dim=1)
+        # print(f'Tensor cat: {k.shape}')
+        x = self.stem2(k)
+        # print(f'stem2: {x.shape}')
         tmp_x.append(x)
 
         for s in range(len(self.stages[0])-1):
@@ -520,6 +540,10 @@ class LiteMono(nn.Module):
         x = self.stages[0][-1](x)
         tmp_x.append(x)
         features.append(x)
+        
+        # print('Tmp shape (stem2, stage1_feature):\n')
+        # for t in tmp_x:
+        #     print(t.shape)
 
         for i in range(1, 3):
             tmp_x.append(x_down[i])

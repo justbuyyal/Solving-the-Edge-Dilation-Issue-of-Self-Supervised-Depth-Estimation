@@ -49,13 +49,18 @@ class DepthDecoder(nn.Module):
         self.outputs = {}
         x = input_features[-1]
         for i in range(2, -1, -1):
+            # print(f'out feature: {x.shape}')
             x = self.convs[("upconv", i, 0)](x)
+            # print(f'Up Block stage1: {x.shape}')
             x = [upsample(x)]
+            # print(f'Upsampling: {x[0].shape}')
 
             if self.use_skips and i > 0:
                 x += [input_features[i - 1]]
             x = torch.cat(x, 1)
+            # print(f'cat feature: {x.shape}')
             x = self.convs[("upconv", i, 1)](x)
+            # print(f'UpSampling Block: {x.shape}')
             
             '''
                 Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
@@ -65,8 +70,11 @@ class DepthDecoder(nn.Module):
             # =====================================
 
             if i in self.scales:
+                # print(f'1x1 conv: {self.convs[("dispconv", i)](x).shape}')
                 f = upsample(self.convs[("dispconv", i)](x), mode='bilinear')
+                # print(f'Pred Us: {f.shape}')
                 self.outputs[("disp", i)] = self.sigmoid(f)
+                # print(f'Prediction Head in scale {i}: {self.outputs[("disp", i)].shape}')
 
         return self.outputs
 

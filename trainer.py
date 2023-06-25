@@ -16,6 +16,7 @@ import networks
 from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedScheduler
 
 import wandb
+import matplotlib.pyplot as plt
 
 '''
     Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
@@ -25,6 +26,13 @@ import wandb
 # import kornia
 # import pickle
 # from crf_networks.NewCRFDepth import NewCRFDepth
+# =====================================
+
+'''
+    Sharpness-Aware Minimization for Efficiently Improving Generalization
+'''
+# =====================================
+from sam.sam import SAM
 # =====================================
 
 # torch.backends.cudnn.benchmark = True
@@ -108,6 +116,7 @@ class Trainer:
                     self.models_pose["pose_encoder"].num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2)
+                
                 self.models_pose["pose"].to(self.device)
 
             elif self.opt.pose_model_type == "shared":
@@ -132,9 +141,22 @@ class Trainer:
             self.models["predictive_mask"].to(self.device)
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
 
-        self.model_optimizer = optim.AdamW(self.parameters_to_train, self.opt.lr[0], weight_decay=self.opt.weight_decay)
+        self.model_optimizer_basic = optim.AdamW
+        '''
+            Sharpness-Aware Minimization for Efficiently Improving Generalization
+        '''
+        # =====================================
+        self.model_optimizer = SAM(self.parameters_to_train, self.model_optimizer_basic, lr=self.opt.lr[0], weight_decay=self.opt.weight_decay)
+        # =====================================
+
         if self.use_pose_net:
-            self.model_pose_optimizer = optim.AdamW(self.parameters_to_train_pose, self.opt.lr[3], weight_decay=self.opt.weight_decay)
+            self.model_pose_optimizer_basic = optim.AdamW
+            '''
+                Sharpness-Aware Minimization for Efficiently Improving Generalization
+            '''
+            # =====================================
+            self.model_pose_optimizer = SAM(self.parameters_to_train_pose, self.model_pose_optimizer_basic, self.opt.lr[3], weight_decay=self.opt.weight_decay)
+            # =====================================
 
         self.model_lr_scheduler = ChainedScheduler(
                             self.model_optimizer,
@@ -343,13 +365,26 @@ class Trainer:
 
             outputs, losses = self.process_batch(inputs)
 
-            self.model_optimizer.zero_grad()
-            if self.use_pose_net:
-                self.model_pose_optimizer.zero_grad()
+            # self.model_optimizer.zero_grad()
+            # if self.use_pose_net:
+            #     self.model_pose_optimizer.zero_grad()
             losses["loss"].backward()
-            self.model_optimizer.step()
+            # self.model_optimizer.step()
+            # if self.use_pose_net:
+            #     self.model_pose_optimizer.step()
+            '''
+                Sharpness-Aware Minimization for Efficiently Improving Generalization
+            '''
+            # =====================================
+            self.model_optimizer.first_step(zero_grad=True)
             if self.use_pose_net:
-                self.model_pose_optimizer.step()
+                self.model_pose_optimizer.first_step(zero_grad=True)
+            _, losses_sec = self.process_batch(inputs)
+            losses_sec["loss"].backward()
+            self.model_optimizer.second_step(zero_grad=True)
+            if self.use_pose_net:
+                self.model_pose_optimizer.second_step(zero_grad=True)
+            # =====================================
 
             duration = time.time() - before_op_time
 
@@ -369,6 +404,10 @@ class Trainer:
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
+                
+                '''MY uncertainty'''
+                if self.opt.uncertainty:
+                    self.save_uncert(outputs)
 
                 self.log("train", inputs, outputs, losses)
                 # self.val()
@@ -438,9 +477,16 @@ class Trainer:
 
                     outputs = self.models["depth"](features)
             '''
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
+            
+            '''MY uncertainty'''
+            input_img = inputs["color_aug", 0, 0]
+            if self.opt.uncertainty:
+                features = self.models["encoder"](torch.cat((input_img, torch.flip(input_img, [3])), 0))
+            else:
+                features = self.models["encoder"](input_img)
 
             outputs = self.models["depth"](features)
+            outputs["origin_color_aug"] = inputs["color", -1, 0]
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -622,6 +668,19 @@ class Trainer:
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            
+            '''MY uncertrainty'''
+            # =====================================
+            if self.opt.uncertainty:
+                N = depth.shape[0] // 2
+                depth_ = depth[:N]
+                flipped_depth = depth[N:]
+                back_flip_depth = torch.flip(flipped_depth, [3])
+                outputs[("uncertainty", scale)] = torch.abs(depth_ - back_flip_depth)
+                # Get refined depth from Avg(depth_, back_flip_depth)
+                # depth = ((depth_ + back_flip_depth) / 2.0)
+                depth = depth_
+            # =====================================
 
             outputs[("depth", 0, scale)] = depth
 
@@ -690,7 +749,9 @@ class Trainer:
             else:
                 source_scale = 0
 
-            disp = outputs[("disp", scale)]
+            '''MY uncertainty'''
+            disp = outputs[("disp", scale)] if not self.opt.uncertainty else outputs[("disp", scale)][:self.opt.batch_size]
+            
             '''ORIGINAL'''
             # color = inputs[("color", 0, scale)]
             '''
@@ -784,6 +845,16 @@ class Trainer:
             smooth_loss = get_smooth_loss(norm_disp, color)
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            
+            '''MY (Uncertainty Loss)'''
+            # =====================================
+            if self.opt.uncertainty:
+                uncertainty_map = outputs[("uncertainty", scale)]
+                norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min())
+                losses["uncert_loss/{}".format(scale)] = torch.mean(norm_uncertainty)
+                loss += losses["uncert_loss/{}".format(scale)]
+            # =====================================
+            
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
@@ -875,7 +946,8 @@ class Trainer:
 
             is_boundary = (pos_num >= kernel_size - 1) & (neg_num >= kernel_size - 1)
 
-            feature = outputs[('d_feature', s)]
+            '''MY uncertainty'''
+            feature = outputs[('d_feature', s)] if not self.opt.uncertainty else outputs[('d_feature', s)][:self.opt.batch_size]
             affinity = self.compute_affinity(feature, kernel_size=kernel_size)
             neg_dist = neg_idx * affinity
 
@@ -973,7 +1045,8 @@ class Trainer:
         This isn't particularly accurate as it averages over the entire batch,
         so is only used to give an indication of validation performance
         """
-        depth_pred = outputs[("depth", 0, 0)]
+        '''MY uncertainty'''
+        depth_pred = outputs[("depth", 0, 0)] if not self.opt.uncertainty else outputs[("depth", 0, 0)][:self.opt.batch_size]
         depth_pred = torch.clamp(F.interpolate(
             depth_pred, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
         depth_pred = depth_pred.detach()
@@ -996,6 +1069,52 @@ class Trainer:
 
         for i, metric in enumerate(self.depth_metric_names):
             losses[metric] = np.array(depth_errors[i].cpu())
+    
+    '''MY uncertainty'''
+    # =====================================
+    def save_uncert(self, outputs):
+        # Save a batch of uncertainty map as source scale
+        B, _, H, W = outputs[("uncertainty", 0)].shape
+        # depth maps
+        pred_disps, _ = disp_to_depth(outputs[("disp", 0)][:self.opt.batch_size], 1e-3, 80) # B, 1, H, W
+        pred_disps = pred_disps.detach().cpu()[: ,0].numpy()
+        # uncertainty maps
+        uncertainty_maps = outputs[("uncertainty", 0)]
+        # Reprojection Output Color Image
+        repo_imgs = outputs[("color", 1, 0)] # B, 3, H, W
+        # Original Input Aug Color Image
+        ori_imgs = outputs[("color_identity", 1, 0)]
+        for i in range(B):
+            # Get depth map
+            depth_map = pred_disps[i] # H, W 
+            depth_map = 1 / depth_map
+            # Save color depth map
+            depth_name = str(i+1) + '_depth.jpg'
+            depth_path = os.path.join(self.log_path, 'uncert', depth_name)
+            plt.imsave(depth_path, depth_map, cmap='plasma')
+            # Get uncertainty map
+            uncertainty_map = uncertainty_maps[i]
+            norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min()) # [0, 1]
+            norm_uncertainty = torch.squeeze(norm_uncertainty).detach().cpu().numpy()
+            # Save uncertainty map
+            uncert_name = str(i+1) + '_uncert.jpg'
+            uncert_path = os.path.join(self.log_path, 'uncert', uncert_name)
+            plt.imsave(uncert_path, norm_uncertainty, cmap='hot')
+            # Save color image
+            repo_img = repo_imgs[i].permute(1, 2, 0).detach().cpu().numpy() # H, W, 3
+            nor_repo_img = (repo_img - np.min(repo_img)) / (np.max(repo_img) - np.min(repo_img)) # Normalize
+            repo_img = (nor_repo_img * 255).astype(np.uint8)
+            repo_name = str(i+1) + '_RGB.jpg'
+            repo_path = os.path.join(self.log_path, 'uncert', repo_name)
+            plt.imsave(repo_path, repo_img)
+            # Save original color image
+            ori_img = ori_imgs[i].permute(1, 2, 0).detach().cpu().numpy() # H, W, 3
+            nor_ori_img = (ori_img - np.min(ori_img)) / (np.max(ori_img) - np.min(ori_img)) # Normalize
+            ori_img = (nor_ori_img * 255).astype(np.uint8)
+            ori_name = str(i+1) + '_Ori_RGB.jpg'
+            ori_path = os.path.join(self.log_path, 'uncert', ori_name)
+            plt.imsave(ori_path, ori_img)
+    # =====================================
 
     def log_time(self, batch_idx, duration, loss):
         """Print a logging statement to the terminal
