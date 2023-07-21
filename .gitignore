@@ -140,3 +140,7 @@ dpt_networks/
 ASFF/
 apex/
 uncertainty.py
+sam/
+eval_rgb/
+.vscode/
+export_IMG.py

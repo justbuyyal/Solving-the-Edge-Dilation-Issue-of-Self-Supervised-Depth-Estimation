@@ -5,12 +5,6 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath
 import math
 import torch.cuda
-'''
-    Deformable ConvNets v2: More Deformable, Better Results
-'''
-# =====================================
-from ASFF.utils.DCN.modules import ModulatedDeformConv2dPack
-# =====================================
 
 
 class PositionalEncodingFourier(nn.Module):
@@ -140,15 +134,6 @@ class Conv(nn.Module):
         self.conv = nn.Conv2d(nIn, nOut, kernel_size=kSize,
                               stride=stride, padding=padding,
                               dilation=dilation, groups=groups, bias=bias)
-        
-        '''
-            Deformable ConvNets v2: More Deformable, Better Results
-        '''
-        # =====================================
-        # self.conv = ModulatedDeformConv2dPack(nIn, nOut, kernel_size=kSize,
-        #                         stride=stride, padding=padding,
-        #                         dilation=dilation, groups=groups, bias=bias)
-        # =====================================
 
         if self.bn_act:
             self.bn_gelu = BNGELU(nOut)
@@ -180,14 +165,6 @@ class CDilated(nn.Module):
         '''ORIGINAL'''
         self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
                               dilation=d, groups=groups)
-        
-        '''
-            Deformable ConvNets v2: More Deformable, Better Results
-        '''
-        # =====================================
-        # self.conv = ModulatedDeformConv2dPack(nIn, nOut, kSize, stride=stride, padding=padding, bias=bias,
-        #                              dilation=d, groups=groups)
-        # =====================================
 
     def forward(self, input):
         """

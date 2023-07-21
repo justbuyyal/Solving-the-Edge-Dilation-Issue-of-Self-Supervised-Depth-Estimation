@@ -18,26 +18,11 @@ class LiteMonoOptions:
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default="./tmp")
-        '''MY'''
-        self.parser.add_argument("--uncertainty",
+                                 default="./tmp")     
+        self.parser.add_argument("--save_pred",
                                  default=False,
                                  action="store_true",
-                                 help="Using uncertainty map for training")
-        '''
-            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-        '''
-        # =====================================
-        self.parser.add_argument("--dist_wt",
-                                 type=float,
-                                 help="distillation loss weight",
-                                 default=1.0)
-        self.parser.add_argument("--thre",
-                                 type=float,
-                                 help="threshold for edge map",
-                                 default=0.95)
-        # =====================================
-        
+                                 help="Using for saving prediction image in evaluation")
         '''
           Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''

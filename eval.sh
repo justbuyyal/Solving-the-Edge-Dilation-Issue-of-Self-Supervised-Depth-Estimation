@@ -5,3 +5,4 @@ python -W ignore evaluate_depth.py \
         --data_path ~/datasets/kitti \
         --model lite-mono \
         --png \
+        --save_pred

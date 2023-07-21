@@ -18,14 +18,6 @@ from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedSch
 
 import wandb
 
-'''
-    Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-'''
-# =====================================
-# from dpt_networks.dpt_depth import DPTDepthModel
-# import kornia
-# =====================================
-
 # torch.backends.cudnn.benchmark = True
 
 
@@ -75,23 +67,6 @@ class Trainer:
                                                      self.opt.scales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
-        
-        '''
-            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-        '''
-        # =====================================
-        # self.mono_model = DPTDepthModel(
-        #     path='./dpt_networks/weights/dpt_hybrid_kitti-cb926ef4.pt',
-        #     backbone='vitb_rn50_384',
-        #     non_negative=True
-        # )
-        # self.mono_model.requires_grad=False
-        # self.mono_model.to(self.device)
-        # self.mono_model.eval()
-        # self.depth_criterion = nn.HuberLoss(delta=0.8)
-        # self.SOFT = nn.Softsign()
-        # self.ABSSIGN = torch.sign
-        # =====================================
 
         if self.use_pose_net:
             if self.opt.pose_model_type == "separate_resnet":
@@ -278,6 +253,7 @@ class Trainer:
         """
         self.epoch = 0
         self.step = 0
+        # self.scaler = GradScaler()
         self.start_time = time.time()
         # Wandb Watch Depth models & Pose models
         # =====================================
@@ -338,19 +314,22 @@ class Trainer:
             self.model_pose_lr_scheduler.step()
 
         for batch_idx, inputs in enumerate(self.train_loader):
-
-            before_op_time = time.time()
-
-            outputs, losses = self.process_batch(inputs)
-
             self.model_optimizer.zero_grad()
             if self.use_pose_net:
                 self.model_pose_optimizer.zero_grad()
+                
+            before_op_time = time.time()
+            # with autocast():
+            outputs, losses = self.process_batch(inputs)
             losses["loss"].backward()
+            # self.scaler.scale(losses["loss"]).backward()
+            # self.scaler.step(self.model_optimizer)
             self.model_optimizer.step()
             if self.use_pose_net:
+                # self.scaler.step(self.model_pose_optimizer)
                 self.model_pose_optimizer.step()
-
+                
+            # self.scaler.update()
             duration = time.time() - before_op_time
 
             # log less frequently after the first 2000 steps to save time & disk space
@@ -369,10 +348,6 @@ class Trainer:
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
-                
-                '''MY uncertainty'''
-                if self.opt.uncertainty:
-                    self.save_uncert(outputs)
 
                 self.log("train", inputs, outputs, losses)
                 # self.val()
@@ -410,23 +385,9 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            '''MY uncertainty'''
-            input_img = inputs["color_aug", 0, 0]
-            if self.opt.uncertainty:
-                features = self.models["encoder"](torch.cat((input_img, torch.flip(input_img, [3])), 0))
-            else:
-                features = self.models["encoder"](input_img)
+            features = self.models["encoder"](inputs["color_aug", 0, 0])
             
             outputs = self.models["depth"](features)
-            
-            '''
-                Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-            '''
-            # =====================================
-            # with torch.no_grad():
-            #     outputs['fromMono'], feature_dpt = self.mono_model((inputs["color_aug", 0, 0]))
-            #     outputs['fromMono_dep'] = (1/(outputs['fromMono'] + 1e-6))
-            # =====================================
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -452,6 +413,13 @@ class Trainer:
                 pose_feats = {f_i: features[f_i] for f_i in self.opt.frame_ids}
             else:
                 pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
+                '''MY Masking'''
+                # =====================================
+                # b, _, h, w = inputs["color_aug", 0, 0].shape
+                # mask = torch.randn(b, 1, h, w) <= 0.7 # mask of 70%
+                # for f_i in self.opt.frame_ids:
+                #     pose_feats[f_i][mask.expand_as(pose_feats[f_i])]=0
+                # =====================================
 
             for f_i in self.opt.frame_ids[1:]:
                 if f_i != "s":
@@ -608,17 +576,7 @@ class Trainer:
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
-            '''MY uncertrainty'''
-            # =====================================
-            if self.opt.uncertainty:
-                N = depth.shape[0] // 2
-                depth_ = depth[:N]
-                flipped_depth = depth[N:]
-                back_flip_depth = torch.flip(flipped_depth, [3])
-                outputs[("uncertainty", scale)] = torch.abs(depth_ - back_flip_depth)
-                # Get refined depth from Avg(depth_, back_flip_depth)
-                depth = torch.mean((depth_ + back_flip_depth))
-            # =====================================
+
             outputs[("depth", 0, scale)] = depth
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
@@ -685,8 +643,8 @@ class Trainer:
                 source_scale = scale
             else:
                 source_scale = 0
-            '''MY uncertainty'''
-            disp = outputs[("disp", scale)] if not self.opt.uncertainty else outputs[("disp", scale)][:self.opt.batch_size]
+            
+            disp = outputs[("disp", scale)]
             '''ORIGINAL'''
             # color = inputs[("color", 0, scale)]
             '''
@@ -781,14 +739,6 @@ class Trainer:
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             
-            '''MY (Uncertainty Loss)'''
-            # =====================================
-            if self.opt.uncertainty:
-                uncertainty_map = outputs[("uncertainty", scale)]
-                norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min())
-                losses["uncert_loss/{}".format(scale)] = torch.mean(norm_uncertainty)
-                loss += losses["uncert_loss/{}".format(scale)]
-            # =====================================
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
@@ -805,54 +755,8 @@ class Trainer:
         # else:
         # total_loss /= self.num_scales
         losses["loss"] = total_loss
-        
-        '''
-            Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-        '''
-        # =====================================
-        # median alignment for ease of use
-        # fac = (torch.median(outputs[('depth', 0, 0)]) / torch.median(outputs["fromMono_dep"])).detach()
-        # target_depth = outputs["fromMono_dep"] * fac
-
-        # # spatial gradient
-        # edge_target = kornia.filters.spatial_gradient(target_depth)
-        # edge_pred = kornia.filters.spatial_gradient(outputs[('depth', 0, 0)])
-
-        # # convert to magnitude map
-        # edge_target =  torch.sqrt(edge_target[:,:,0,:,:]**2 + edge_target[:,:,1,:,:]**2 + 1e-6)
-        # edge_target = edge_target[:,:,5:-5,5:-5]
-        # # thresholding
-        # bar_target = torch.quantile(edge_target, self.opt.thre)
-        # pos = edge_target > bar_target
-        # mask_target = self.ABSSIGN(edge_target - bar_target)[pos]
-        # mask_target = mask_target.detach()
-
-        # # convert prediction to magnitude map 
-        # edge_pred =  torch.sqrt(edge_pred[:,:,0,:,:]**2 + edge_pred[:,:,1,:,:]**2 + 1e-6)
-        # edge_pred = F.normalize(edge_pred.view(edge_pred.size(0), -1), dim=1, p=2).view(edge_pred.size())
-        # edge_pred = edge_pred[:,:,5:-5,5:-5]
-        # bar_pred = torch.quantile(edge_pred, self.opt.thre).detach()
-
-        # # soft sign for differentiable
-        # mask_pred = self.SOFT(edge_pred - bar_pred)[pos]
-
-        # loss_depth_criterion = 0.001 * self.depth_criterion(mask_pred, mask_target)
-        # losses["loss/pseudo_depth"] = self.compute_ssim_loss(outputs["fromMono_dep"], outputs[('depth', 0, 0)]).mean() + loss_depth_criterion
-        # losses["loss"] += self.opt.dist_wt * losses["loss/pseudo_depth"]
-        # =====================================
-        
+               
         return losses
-    
-    '''
-        Toward Practical Monocular Indoor Depth Estimation (CVPR 2022)
-    '''
-    # =====================================
-    # def compute_ssim_loss(self, pred, target):
-    #     """
-    #     Computes reprojection loss between a batch of predicted and target images
-    #     """
-    #     return self.ssim(pred, target).mean(1, True)
-    # =====================================
     
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
@@ -878,8 +782,7 @@ class Trainer:
 
             is_boundary = (pos_num >= kernel_size - 1) & (neg_num >= kernel_size - 1)
 
-            '''MY uncertainty'''
-            feature = outputs[('d_feature', s)] if not self.opt.uncertainty else outputs[('d_feature', s)][:self.opt.batch_size]
+            feature = outputs[('d_feature', s)]
             affinity = self.compute_affinity(feature, kernel_size=kernel_size)
             neg_dist = neg_idx * affinity
 
@@ -977,8 +880,7 @@ class Trainer:
         This isn't particularly accurate as it averages over the entire batch,
         so is only used to give an indication of validation performance
         """
-        '''MY uncertainty'''
-        depth_pred = outputs[("depth", 0, 0)] if not self.opt.uncertainty else outputs[("depth", 0, 0)][:self.opt.batch_size]
+        depth_pred = outputs[("depth", 0, 0)]
         depth_pred = torch.clamp(F.interpolate(
             depth_pred, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
         depth_pred = depth_pred.detach()
@@ -1002,36 +904,6 @@ class Trainer:
         for i, metric in enumerate(self.depth_metric_names):
             losses[metric] = np.array(depth_errors[i].cpu())
         
-    '''MY uncertainty'''
-    def save_uncert(self, outputs):
-        import cv2
-        # Save a batch of uncertainty map as source scale
-        B, _, H, W = outputs[("uncertainty", 0)].shape
-        for i in range(B):
-            # depth map
-            depth_map = outputs[("depth", 0, 0)][i].detach().cpu().numpy
-            depth_map = torch.clamp(F.interpolate(
-            depth_map, [375, 1242], mode="bilinear", align_corners=False), 1e-3, 80)
-            depth_map = depth_map.detach().cpu().numpy() # 1, 375, 1242
-            # Save color depth map
-            depth_color = cv2.applyColorMap(depth_map, cv2.COLORMAP_MAGMA)
-            depth_name = str(i+1) + '_depth.jpg'
-            depth_path = os.path.join(self.log_path, 'uncert', depth_name)
-            cv2.imwrite(depth_path, depth_color)
-            # uncertainty map
-            uncertainty_map = (outputs[("uncertainty", 0)][i]) # 1, H, W
-            uncertainty_map = torch.squeeze(uncertainty_map) # H, W
-            norm_uncertainty = (uncertainty_map - uncertainty_map.min()) / (uncertainty_map.max() - uncertainty_map.min()) # [0, 1]
-            norm_uncertainty = torch.clamp(
-                F.interpolate(norm_uncertainty, [375, 1242], mode='bilinear', align_corners=False),  # [375, 1242]
-                1e-3,
-                1) # [1e-3, 1]
-            # Save uncertainty map
-            uncertainty_image = cv2.applyColorMap((norm_uncertainty * 255).astype(np.uint8), cv2.COLORMAP_HOT)
-            uncert_name = str(i+1) + '.jpg'
-            uncert_path = os.path.join(self.log_path, 'uncert', uncert_name)
-            cv2.imwrite(uncert_path, uncertainty_image)
-
     def log_time(self, batch_idx, duration, loss):
         """Print a logging statement to the terminal
         """
