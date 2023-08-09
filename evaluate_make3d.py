@@ -11,11 +11,12 @@ cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV
 
 # Path
 # load_weights_folder = './tmp/LM_KITTI/models/best'
-load_weights_folder = './tmp/LM_AB/models/best'
+# load_weights_folder = './tmp/LM_AB/models/best'
 # load_weights_folder = './tmp/LM_AB_Triplet/models/best'
 # load_weights_folder = './tmp/LM_AB_Triplet_DCNv2/models/best'
 # load_weights_folder = './tmp/LM_AB_Triplet_Dist/models/best'
 # load_weights_folder = './tmp/LM_AB_Triplet_Masking_31/models/best'
+load_weights_folder = './tmp/LM_AB_Triplet_Masking_30/models/best'
 # load_weights_folder = './pretrained/lite-mono/'
 main_path = '/home/user/datasets/Make3D'
 encoder_path = os.path.join(load_weights_folder, "encoder.pth")

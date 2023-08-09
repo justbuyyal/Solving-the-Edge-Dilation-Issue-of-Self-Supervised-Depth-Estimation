@@ -415,10 +415,12 @@ class Trainer:
                 pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
                 '''MY Masking'''
                 # =====================================
-                # b, _, h, w = inputs["color_aug", 0, 0].shape
+                b, _, h, w = inputs["color_aug", 0, 0].shape
                 # mask = torch.randn(b, 1, h, w) <= 0.7 # mask of 70%
-                # for f_i in self.opt.frame_ids:
-                #     pose_feats[f_i][mask.expand_as(pose_feats[f_i])]=0
+                # mask = torch.randn(b, 1, h, w) <= 0.5 # mask of 50%
+                mask = torch.randn(b, 1, h, w) <= 0.3 # mask of 30%
+                for f_i in self.opt.frame_ids:
+                    pose_feats[f_i][mask.expand_as(pose_feats[f_i])]=0
                 # =====================================
 
             for f_i in self.opt.frame_ids[1:]:

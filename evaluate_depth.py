@@ -215,11 +215,11 @@ def evaluate(opt):
             depth_path = os.path.join(log_path, 'pred', depth_name)
             plt.imsave(depth_path, pred_depth, cmap='plasma')
             # Save gt
-            if not os.path.exists(os.path.join(log_path, 'gt')):
-                os.makedirs(os.path.join(log_path, 'gt'), exist_ok=True)
-            depth_name = str(i+1) + '_gt.jpg'
-            gt_path = os.path.join(log_path, 'gt', depth_name)
-            plt.imsave(gt_path, my_gt, cmap='plasma')
+            # if not os.path.exists(os.path.join(log_path, 'gt')):
+            #     os.makedirs(os.path.join(log_path, 'gt'), exist_ok=True)
+            # depth_name = str(i+1) + '_gt.jpg'
+            # gt_path = os.path.join(log_path, 'gt', depth_name)
+            # plt.imsave(gt_path, my_gt, cmap='plasma')
         # =====================================
 
         if opt.eval_split == "eigen":
