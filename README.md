@@ -1,6 +1,6 @@
 <div id="top" align="center">
   
-# Lite-Mono 
+# Solving the Edge-Dilation Issue of Self-Supervised Depth Estimation
 **A Lightweight CNN and Transformer Architecture for Self-Supervised Monocular Depth Estimation**
   [[paper link]](https://arxiv.org/abs/2211.13202)
   
@@ -33,11 +33,7 @@
 - [Citation](#citation)
 
 
-## Overview
-<img src="./img/overview.png" width="100%" alt="overview" align=center />
-
-
-## Results
+## Base Line Weight (Lite-Mono)
 ### KITTI
 You can download the trained models using the links below.  
 
