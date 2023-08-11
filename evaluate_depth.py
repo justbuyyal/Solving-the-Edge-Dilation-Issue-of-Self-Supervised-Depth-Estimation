@@ -126,20 +126,10 @@ def evaluate(opt):
         
         # Save original color image
         import matplotlib.pyplot as plt
-        # rgb_path = os.path.join('./eval_rgb')
-        # if not os.path.exists(rgb_path):
-        #     os.makedirs(rgb_path, exist_ok=True)
 
         with torch.no_grad():
             for idx, data in enumerate(dataloader):
                 input_color = data[("color", 0, 0)].cuda()
-                
-                # for i in range(input_color.shape[0]):
-                #     rgb_img = input_color[i].permute(1, 2, 0).detach().cpu().numpy()
-                #     nor_rgb_img = (rgb_img - np.min(rgb_img)) / (np.max(rgb_img) - np.min(rgb_img))
-                #     ori_img = (nor_rgb_img * 255).astype(np.uint8)
-                #     ori_path = os.path.join(rgb_path, str(16*idx + i) + '_RGB.jpg')
-                #     plt.imsave(ori_path, ori_img)
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
@@ -148,15 +138,12 @@ def evaluate(opt):
 
                 flops, params, flops_e, params_e, flops_d, params_d = profile_once(encoder, depth_decoder, input_color)
                 t1 = time_sync()
-                # print(f'Input shape (post): {input_color.shape}')
                 output = depth_decoder(encoder(input_color))
-                # print(f'Output (post): {output[("disp", 0)].shape}')
                 t2 = time_sync()
 
                 pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
-                # print(f'Prediction Shape (two img): {pred_disp.shape}')
+                
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
-                # print(f'Prediction Shape (cpu): {pred_disp.shape}')
 
                 if opt.post_process:
                     N = pred_disp.shape[0] // 2
@@ -205,7 +192,7 @@ def evaluate(opt):
         pred_disp = pred_disps[i]
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 1 / pred_disp
-        # Save Predicted Depth Image
+        # MY_FIX: Save Predicted Depth Image
         # =====================================
         if opt.save_pred:
             log_path = os.path.join(opt.log_dir, eval_model_name)

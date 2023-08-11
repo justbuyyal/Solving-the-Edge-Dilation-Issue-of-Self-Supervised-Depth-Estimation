@@ -59,6 +59,7 @@ class DepthDecoder(nn.Module):
             '''
                 Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
             '''
+            # TripletLoss
             # =====================================
             self.outputs[('d_feature', i+1)] = x
             # =====================================

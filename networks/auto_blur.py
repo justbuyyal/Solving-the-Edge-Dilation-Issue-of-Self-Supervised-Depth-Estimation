@@ -3,7 +3,7 @@ import torch.nn as nn
 from torchvision import transforms
 import torch.nn.functional as F
 
-
+# AutoBlur: AutoBlur main module source code
 class AutoBlurModule(nn.Module):
     def __init__(self, receptive_field_of_hf_area,
                  hf_pixel_thresh=0.2,

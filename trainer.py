@@ -180,6 +180,7 @@ class Trainer:
         '''
             Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''
+        # AutoBlur
         # =====================================
         if not self.opt.disable_auto_blur:
             assert self.opt.receptive_field_of_auto_blur % 2 == 1, \
@@ -213,9 +214,11 @@ class Trainer:
 
         self.save_opts()
         
-        # Set wandb
+        # MY_FIX: Set wandb
+        # =====================================
         self.wandb = wandb.init(project = "Lite-Mono",
                     name = self.opt.model_name)
+        # =====================================
 
     def set_train(self):
         """Convert all models to training mode
@@ -228,9 +231,9 @@ class Trainer:
         """
         for m in self.models.values():
             m.eval()
-
+    
     '''MY SAVE BEST FUNCTION'''
-    # Comparing Best & Current Evaluation Score, if better, save it
+    # MY_FIX: Comparing Best & Current Evaluation Score, if better, save it
     # =====================================
     def save_best(self, losses):
         priority_order = ['de/abs_rel', 'de/sq_rel', 'de/rms', 'de/log_rms']
@@ -253,23 +256,22 @@ class Trainer:
         """
         self.epoch = 0
         self.step = 0
-        # self.scaler = GradScaler()
         self.start_time = time.time()
-        # Wandb Watch Depth models & Pose models
+        # MY_FIX: Wandb Watch Depth models & Pose models
         # =====================================
         self.wandb.watch(self.models['encoder'])
         self.wandb.watch(self.models_pose['pose_encoder'])
-        # =====================================
-        '''MY'''
+        # MY_FIX: Best metrics initialization
         self.best_models = {
             'de/abs_rel': 1.0,
             'de/sq_rel': 1.0,
             'de/rms': 100.0,
             'de/log_rms': 1.0
         }
+        # =====================================
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
-            # Wandb Log Epoch & LR
+            # MY_FIX: Wandb Log Epoch & LR
             # =====================================
             self.wandb.log({
                 'Epoch': (self.epoch + 1),
@@ -278,10 +280,11 @@ class Trainer:
             })
             # =====================================
             '''ORIGINAL'''
+            # ORIGINAL
             # if (self.epoch + 1) % self.opt.save_frequency == 0:
             #     self.save_model()
-            '''MY'''
-            # Saving best model if get a better one
+
+            # MY_FIX: Saving best model if get a better one
             # =====================================
             metrics = self.evaluate()
             if self.save_best(metrics):
@@ -293,6 +296,8 @@ class Trainer:
                 })
                 self.save_model()
             # =====================================
+        # MY_FIX
+        # =====================================
         # Save Checkpoint
         self.save_model(checkpoint=True)
         # Log Best Score as one
@@ -301,6 +306,7 @@ class Trainer:
             self.wandb.log({
                 error_metrics[idx]: v
             })
+        # =====================================
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -319,17 +325,14 @@ class Trainer:
                 self.model_pose_optimizer.zero_grad()
                 
             before_op_time = time.time()
-            # with autocast():
+            
             outputs, losses = self.process_batch(inputs)
             losses["loss"].backward()
-            # self.scaler.scale(losses["loss"]).backward()
-            # self.scaler.step(self.model_optimizer)
+            
             self.model_optimizer.step()
             if self.use_pose_net:
-                # self.scaler.step(self.model_pose_optimizer)
                 self.model_pose_optimizer.step()
                 
-            # self.scaler.update()
             duration = time.time() - before_op_time
 
             # log less frequently after the first 2000 steps to save time & disk space
@@ -338,7 +341,7 @@ class Trainer:
 
             if early_phase or late_phase:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
-                # Wandb Log Loss
+                # MY_FIX: Wandb Log Loss
                 # =====================================
                 self.wandb.log({
                     'Total_loss': losses['loss'],
@@ -362,6 +365,7 @@ class Trainer:
         '''
             Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''
+        # AutoBlur
         # =====================================
         if not self.opt.disable_auto_blur:
             for scale in self.opt.scales:
@@ -414,13 +418,13 @@ class Trainer:
             else:
                 pose_feats = {f_i: inputs["color_aug", f_i, 0] for f_i in self.opt.frame_ids}
                 '''MY Masking'''
+                # MASK
                 # =====================================
-                b, _, h, w = inputs["color_aug", 0, 0].shape
-                # mask = torch.randn(b, 1, h, w) <= 0.7 # mask of 70%
-                # mask = torch.randn(b, 1, h, w) <= 0.5 # mask of 50%
-                mask = torch.randn(b, 1, h, w) <= 0.3 # mask of 30%
-                for f_i in self.opt.frame_ids:
-                    pose_feats[f_i][mask.expand_as(pose_feats[f_i])]=0
+                if not self.opt.disable_mask:
+                    b, _, h, w = inputs["color_aug", 0, 0].shape
+                    mask = torch.randn(b, 1, h, w) <= self.opt.mask_ratio # mask of opt.mask_ratio %
+                    for f_i in self.opt.frame_ids:
+                        pose_feats[f_i][mask.expand_as(pose_feats[f_i])]=0
                 # =====================================
 
             for f_i in self.opt.frame_ids[1:]:
@@ -490,6 +494,7 @@ class Trainer:
     '''
         MY Evaluation
     '''
+    # MY_FIX: Copy evaluation from evaluate_depth as the same evaluation function.
     # =====================================
     def evaluate(self):
         import cv2
@@ -648,10 +653,12 @@ class Trainer:
             
             disp = outputs[("disp", scale)]
             '''ORIGINAL'''
+            # ORIGINAL
             # color = inputs[("color", 0, scale)]
             '''
                 Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
             '''
+            # AutoBlur
             # =====================================
             color = inputs[("color", 0, scale)] if self.opt.disable_ambiguity_mask \
                 else inputs[('raw_color', 0, scale)]
@@ -701,6 +708,7 @@ class Trainer:
             '''
                 Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
             '''
+            # AutoBlur
             # =====================================
             if not self.opt.disable_ambiguity_mask:
                 ambiguity_mask = self.compute_ambiguity_mask(
@@ -724,6 +732,7 @@ class Trainer:
             '''
                 Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
             '''
+            # AutoBlur
             # =====================================
             if not self.opt.disable_ambiguity_mask:
                 to_optimise = to_optimise * ambiguity_mask
@@ -747,6 +756,7 @@ class Trainer:
         '''
             Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
         '''
+        # TripletLoss
         # =====================================
         if not self.opt.disable_triplet_loss:
             sgt_loss = self.compute_sgt_loss(inputs, outputs)
@@ -754,6 +764,7 @@ class Trainer:
             total_loss = total_loss + sgt_loss * self.opt.sgt
         # =====================================
         '''ORIGINAL'''
+        # ORIGINAL
         # else:
         # total_loss /= self.num_scales
         losses["loss"] = total_loss
@@ -763,6 +774,7 @@ class Trainer:
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
     '''
+    # TripletLoss
     # =====================================
     def compute_sgt_loss(self, inputs, outputs):
         seg_target = inputs[('seg', 0, 0)]
@@ -823,6 +835,7 @@ class Trainer:
     '''
         Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
     '''
+    # AutoBlur
     # =====================================
     @staticmethod
     def extract_ambiguity(ipt):
@@ -924,7 +937,8 @@ class Trainer:
         """Write an event to the tensorboard events file
         """
         writer = self.writers[mode]
-        # Wandb Log Metrics for train & val
+        # MY_FIX: Wandb Log Metrics for train & val
+        # =====================================
         wandb_dict = {}
         for l, v in losses.items():
             writer.add_scalar("{}".format(l), v, self.step)
@@ -933,6 +947,7 @@ class Trainer:
             else:
                 wandb_dict.update({(l+'_val'):v})
         self.wandb.log(wandb_dict)
+        # =====================================
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
@@ -975,13 +990,18 @@ class Trainer:
     def save_model(self, checkpoint=False):
         """Save model weights to disk
         """
+        '''ORIGINAL'''
+        # ORIGINAL
         # save_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.best_models['epoch']))
         '''MY'''
+        # MY_FIX: Save model into best and only save one best model.
+        # =====================================
         save_folder = os.path.join(self.log_path, "models", 'best')
         if checkpoint:
             save_folder = save_folder.replace('best', 'checkpoint')
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
+        # =====================================
 
         for model_name, model in self.models.items():
             save_path = os.path.join(save_folder, "{}.pth".format(model_name))

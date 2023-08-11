@@ -6,7 +6,7 @@ SEED=63
 
 python -W ignore train.py \
     --data_path $DATA_PATH \
-    --model_name LM_AB_Triplet_Masking_30\
+    --model_name LM_AB_Triplet_Masking\
     --num_epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --num_workers $WORKERS \
@@ -17,15 +17,15 @@ python -W ignore train.py \
 
 
 # Training Configurations:
-    # LR:
-    # --lr 0.1 3e-4 30 0.1 3e-4 30 #SGD
-    # --lr 0.0001 5e-6 31 1e-4 0.0001 31
 
-    # Adaptive Blur:
+    # AutoBlur (Disable arguments):
     # --disable_auto_blur \
     # --disable_ambiguity_mask \
 
-    # Triplet Loss:
+    # TripletLoss (Disable arguments):
     # --disable_triplet_loss \
     # --disable_hardest_neg \
     # --disable_isolated_triplet
+
+    # MASK (Disable arguments):
+    # --disable_mask \

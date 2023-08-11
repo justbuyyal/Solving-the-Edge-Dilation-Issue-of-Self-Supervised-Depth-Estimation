@@ -6,9 +6,9 @@ from trainer import Trainer
 options = LiteMonoOptions()
 opts = options.parse()
 
-'''
-    MY
-'''
+'''MY'''
+# MY_FIX: Copy FileTree
+# =====================================
 import os
 import shutil
 def copy_code(opts):
@@ -27,9 +27,12 @@ def copy_code(opts):
         else:
             # File, copy file
             shutil.copyfile(src_path, os.path.join(dst_path, file))
+# =====================================
 
 import torch
 import numpy as np
+# MY_FIX: Set Random Seed Fixed
+# =====================================
 def set_seed(seed):
     if seed is None:
         seed = 1
@@ -40,7 +43,7 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+# =====================================
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()

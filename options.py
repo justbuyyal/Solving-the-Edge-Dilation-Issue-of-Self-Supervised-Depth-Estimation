@@ -19,13 +19,27 @@ class LiteMonoOptions:
                                  type=str,
                                  help="log directory",
                                  default="./tmp")     
+        # MY_FIX: My arguments
+        # =====================================
         self.parser.add_argument("--save_pred",
                                  default=False,
                                  action="store_true",
                                  help="Using for saving prediction image in evaluation")
+        self.parser.add_argument("--disable_mask",
+                                 default=False,
+                                 action="store_true",
+                                 help="if set, disable PoseNet image preprocessing with random masking")
+        self.parser.add_argument("--mask_ratio",
+                                 default=0.5,
+                                 type=float,
+                                 choices=[0.3, 0.5, 0.7],
+                                 help="PoseNet image preprocessing with random masking ratio, with [30%, 50%, 70% masking ratio]")
+        # =====================================
+        
         '''
           Frequency-Aware Self-Supervised Depth Estimation (WACV 2023)
         '''
+        # AutoBlur
         # =====================================
         self.parser.add_argument("--disable_auto_blur",
                                  help="if set, disable Auto-Blur",
@@ -59,6 +73,7 @@ class LiteMonoOptions:
         '''
           Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
         '''
+        # TripletLoss
         # =====================================
         self.parser.add_argument("--disable_triplet_loss",
                                  default=False, action="store_true")

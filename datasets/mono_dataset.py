@@ -15,6 +15,7 @@ def pil_loader(path, mode='RGB'):
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
     '''
+    # TripletLoss
     # =====================================
     if mode == 'P':
         return Image.open(path)
@@ -107,10 +108,12 @@ class MonoDataset(data.Dataset):
                 n, im, i = k
                 inputs[(n, im, i)] = self.to_tensor(f)
                 '''ORIGINAL'''
+                # ORIGINAL
                 # inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
                 '''
                     Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
                 '''
+                # TripletLoss
                 # =====================================
                 # check it isn't a blank frame - keep _aug as zeros so we can check for it
                 if inputs[(n, im, i)].sum() == 0:
@@ -174,6 +177,7 @@ class MonoDataset(data.Dataset):
         '''
             Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
         '''
+        # TripletLoss
         # =====================================
         self.get_item_custom(inputs, folder, frame_index, side, do_flip)
         # =====================================
@@ -232,6 +236,7 @@ class MonoDataset(data.Dataset):
     '''
         Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
     '''
+    # TripletLoss
     # =====================================
     def get_item_custom(self, inputs, folder, frame_index, side, do_flip):
         # implement by derived class if needed.
