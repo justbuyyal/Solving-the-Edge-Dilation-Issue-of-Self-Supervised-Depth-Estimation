@@ -1,4 +1,8 @@
-# TripletLoss: Triplet Loss Image Segmentation Source Code
+'''
+This is the source code of:
+    Self-Supervised Monocular Depth Estimation: Solving the Edge-Fattening Problem (WACV 2023)
+    TripletLoss
+'''
 import torch
 from collections import namedtuple
 

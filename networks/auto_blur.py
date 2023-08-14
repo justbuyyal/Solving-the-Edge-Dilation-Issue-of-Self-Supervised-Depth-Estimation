@@ -1,3 +1,8 @@
+'''
+This is the source code of:
+    Frequency-Aware Self-Supervised Monocular Depth Estimation (WACV 2023)
+    AutoBlur Module
+'''
 import torch
 import torch.nn as nn
 from torchvision import transforms
